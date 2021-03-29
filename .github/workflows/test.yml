@@ -16,6 +16,6 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - run: npm install
-      - run: npm lint
-      - run: npm test
-      - run: npm test-browser
+      - run: npm run lint
+      - run: npm run coverage
+      - run: npm run test-browser
