@@ -396,7 +396,7 @@ function createHttpsServer () {
         }
         server.once('listening', onlisten)
         server.once('error', onerr)
-        server.listen(443)
+        server.listen()
       })
   })
   serverP.handler = DEFAULT_HANDLER
