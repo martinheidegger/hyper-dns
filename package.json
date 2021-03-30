@@ -5,8 +5,8 @@
   "main": "index.js",
   "scripts": {
     "lint": "standard",
-    "test": "cross-env NODE_NO_WARNINGS=1 tape test.js test.client.js",
-    "test-browser": "browserify test.client.js | tape-run",
+    "test": "cross-env NODE_NO_WARNINGS=1 tape test/*.test.js",
+    "test-browser": "browserify test/client.test.js | tape-run",
     "coverage": "c8 npm test"
   },
   "repository": {
