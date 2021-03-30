@@ -1,6 +1,6 @@
-const debug = require('debug')('hyper-dns')
 const QuickLRU = require('quick-lru')
-const { bubbleAbort, wrapTimeout } = require('@consento/promise')
+const { bubbleAbort } = require('@consento/promise/bubbleAbort')
+const { wrapTimeout } = require('@consento/promise/wrapTimeout')
 const lookup = require('./lookup.js')
 const { HyperLookup, DEFAULTS } = lookup
 
@@ -29,6 +29,7 @@ class HyperCachedLookup extends HyperLookup {
   }
 
   async clearName (name, opts = {}) {
+    const { debug } = this.opts
     return wrapTimeout(async signal => {
       debug('deleting cache entry', name)
       await this.opts.persistentCache.clearName(name, { signal })
@@ -37,6 +38,7 @@ class HyperCachedLookup extends HyperLookup {
   }
 
   async clear (opts = {}) {
+    const { debug } = this.opts
     return wrapTimeout(async signal => {
       debug('clearing cache')
       await this.opts.persistentCache.clear({ signal })
@@ -45,6 +47,7 @@ class HyperCachedLookup extends HyperLookup {
   }
 
   async flush (opts = {}) {
+    const { debug } = this.opts
     return wrapTimeout(async signal => {
       debug('flushing cache')
       await this.opts.persistentCache.flush({ signal })
@@ -58,7 +61,7 @@ class HyperCachedLookup extends HyperLookup {
   }
 
   async lookup (name, opts = {}) {
-    const { persistentCache } = this.opts
+    const { persistentCache, debug } = this.opts
     const { ignoreCache, ignoreCachedMiss } = opts
     if (!ignoreCache && name in this.processes) {
       debug('reusing ongoing process to fetch', name)

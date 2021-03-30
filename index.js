@@ -1,7 +1,8 @@
 const cached = require('./lookup-cached.js')
+const debug = require('debug')('hyper-dns')
 
 let plain = () => {
-  const inst = new cached.HyperCachedLookup()
+  const inst = new cached.HyperCachedLookup({ debug })
   plain = () => inst
   return inst
 }

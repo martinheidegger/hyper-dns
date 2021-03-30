@@ -45,9 +45,12 @@ test('invalid domain', async t => {
 test('resolve a dns entry using doh', async t => {
   const domain = 'hello.com'
   const service = await server.init({
+    dns: {
+      userAgent: 'some'
+    },
     json: req => {
       t.equals(req.url, `/query?name=${domain}.&type=TXT`)
-      t.equals(req.headers['user-agent'], 'hyper-dns/1.0.0 (+https://github.com/martinheidegger/hyper-dns)')
+      t.equals(req.headers['user-agent'], 'some')
       t.equals(req.headers.accept, 'application/dns-json')
       return {
         Answer: [

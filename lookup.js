@@ -1,7 +1,7 @@
-const debug = require('debug')('hyper-dns')
-const fetch = require('cross-fetch')
+const { fetch } = require('cross-fetch')
 const { stringify } = require('querystring')
-const { wrapTimeout, bubbleAbort } = require('@consento/promise')
+const { bubbleAbort } = require('@consento/promise/bubbleAbort')
+const { wrapTimeout } = require('@consento/promise/wrapTimeout')
 
 const VERSION_REGEX = /\+([^/]+)$/g
 const DEFAULTS = Object.freeze({
@@ -10,13 +10,13 @@ const DEFAULTS = Object.freeze({
     'https://cloudflare-dns.com:443/dns-query',
     'https://dns.google:443/resolve'
   ]),
-  // We shouldn't read the package.json as this may cause troubles with bundlers
-  userAgent: 'hyper-dns/1.0.0 (+https://github.com/martinheidegger/hyper-dns)',
+  userAgent: null,
   protocol: 'hyper',
   keyRegex: /^\s*(?:(?:hyper|dat):)?(?:\/\/)?([0-9a-f]{64})\s*$/i,
   txtRegex: /^\s*"?(?:hyperkey|datkey)=([0-9a-f]{64})"?\s*$/i,
   ttl: 3600, // 1hr
-  maxTTL: 3600 * 24 * 7 // 1 week
+  maxTTL: 3600 * 24 * 7, // 1 week
+  debug: () => {}
 })
 
 class ArgumentError extends Error {}
@@ -96,7 +96,6 @@ class HyperLookup {
   }
 
   async resolveURL (input, opts = {}) {
-    const { protocol } = this.opts
     const url = parseURL(input)
     if (!url.hostname) {
       url.hostname = url.pathname
@@ -104,20 +103,39 @@ class HyperLookup {
     }
     let version
     if (!url.protocol) {
-      url.protocol = protocol
+      url.protocol = this.opts.protocol
     }
-    if (url.protocol === protocol) {
+    if (url.protocol === this.opts.protocol) {
       url.hostname = url.hostname.replace(VERSION_REGEX, (_match, input) => {
         version = input
         return ''
       })
       url.hostname = await this.resolveName(url.hostname, opts)
     }
-    const raw = `${url.protocol}://${url.auth ? `${url.auth}@` : ''}${url.hostname}${url.port ? `:${url.port}` : ''}${url.pathname || ''}${url.search ? `?${url.search}` : ''}${url.hash ? `#${url.hash}` : ''}`
-    if (version) {
-      return new VersionURL(raw, version)
-    }
-    return new URL(raw)
+    const protocol = `${url.protocol}:`
+    const host = url.hostname ? (url.port ? `${url.hostname}:${url.port}` : url.hostname) : ''
+    const hostname = url.hostname || ''
+    const pathname = url.pathname || ''
+    const search = url.search ? `?${url.search}` : ''
+    const hash = url.hash ? `#${url.hash}` : ''
+    const username = url.username || ''
+    const password = url.password || ''
+    const port = url.port || ''
+    const href = `${protocol}//${username ? `${username}${password ? `:${password}` : ''}@` : ''}${hostname}${version ? `+${version}` : ''}${port ? `:${port}`: port}${pathname}${search}${hash}`
+    return Object.defineProperties(
+      version ? new VersionURL(href, version) : new URL(href),
+      {
+        protocol: { get () { return protocol } },
+        host: { get () { return host } },
+        port: { get () { return port } },
+        hostname: { get () { return hostname } },
+        pathname: { get () { return pathname } },
+        username: { get () { return username } },
+        password: { get () { return password } },
+        search: { get () { return search } },
+        hash: { get () { return hash } }
+      }
+    )
   }
 
   async resolveName (name, opts = {}) {
@@ -141,15 +159,15 @@ class HyperLookup {
 
   async lookup (name, opts = {}) {
     return wrapTimeout(async signal => {
-      const { dohLookup, txtRegex, userAgent, maxTTL } = this.opts
+      const { dohLookup, txtRegex, userAgent, maxTTL, debug } = this.opts
       let key = null
       let { ttl } = this.opts
       try {
         // do a DNS-over-HTTPS lookup
-        const raw = await fetchDnsOverHttpsRecord(name, dohLookup, userAgent, signal)
+        const raw = await fetchDnsOverHttpsRecord(name, dohLookup, userAgent, debug, signal)
         bubbleAbort(signal)
         // parse the record
-        const res = parseDnsOverHttpsRecord(name, await raw.text(), txtRegex)
+        const res = parseDnsOverHttpsRecord(name, await raw.text(), txtRegex, debug)
         key = res.key
         ttl = getTTL(res.TTL, ttl, maxTTL)
         debug('dns-over-https lookup succeeded for "' + name + '":', key, 'ttl=' + ttl)
@@ -178,7 +196,7 @@ module.exports = Object.freeze({
 
 function parseURL (input) {
   // Extended from https://tools.ietf.org/html/rfc3986#appendix-B
-  const parts = /^(?:(?<protocol>[^:/?#]+):)?(?:\/\/(?:(?<auth>[^@]*)@)?(?:(?<hostname>[^/?#:]*)(?::(?<port>[0-9]+))?)?)?(?<pathname>[^?#]*)(?:\?(?<search>[^#]*))?(?:#(?<hash>.*))?$/.exec(input)
+  const parts = /^(?:(?<protocol>[^:/?#]+):)?(?:\/\/(?:(?<username>[^@:]*)(?::(?<password>[^@]*))?@)?(?:(?<hostname>[^/?#:]*)(?::(?<port>[0-9]+))?)?)?(?<pathname>[^?#]*)(?:\?(?<search>[^#]*))?(?:#(?<hash>.*))?$/.exec(input)
   return parts.groups
 }
 
@@ -190,7 +208,7 @@ function cleanName (name) {
   return (hostname || pathname).replace(VERSION_REGEX, '')
 }
 
-async function fetchDnsOverHttpsRecord (name, dohLookup, userAgent, signal) {
+async function fetchDnsOverHttpsRecord (name, dohLookup, userAgent, debug, signal) {
   if (!name.endsWith('.')) {
     name = name + '.'
   }
@@ -200,12 +218,15 @@ async function fetchDnsOverHttpsRecord (name, dohLookup, userAgent, signal) {
   }
   const path = `${dohLookup}?${stringify(query)}`
   debug('dns-over-https lookup for name:', name, 'at', path)
+  const headers = {
+    // Cloudflare requires this exact header; luckily everyone else ignores it
+    Accept: 'application/dns-json'
+  }
+  if (userAgent) {
+    headers['User-Agent'] = userAgent
+  }
   const res = await fetch(path, {
-    headers: {
-      // Cloudflare requires this exact header; luckily everyone else ignores it
-      Accept: 'application/dns-json',
-      'User-Agent': userAgent
-    },
+    headers,
     signal
   })
   if (res.status !== 200) {
@@ -214,7 +235,7 @@ async function fetchDnsOverHttpsRecord (name, dohLookup, userAgent, signal) {
   return res
 }
 
-function parseDnsOverHttpsRecord (name, body, dnsTxtRegex) {
+function parseDnsOverHttpsRecord (name, body, dnsTxtRegex, debug) {
   // decode to obj
   let record
   try {
