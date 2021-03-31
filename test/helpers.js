@@ -1,8 +1,8 @@
+const debug = require('debug')('hyper-dns-test')
 const https = require('https')
 const pem = require('pem')
-const { HyperLookup, HyperCachedLookup } = require('..')
 
-function createHttpsServer () {
+function createHttpsServer (Clazz) {
   const DEFAULT_HANDLER = (_req, res) => res.end('err')
   const serverP = new Promise((resolve, reject) => {
     pem.createCertificate(
@@ -16,7 +16,7 @@ function createHttpsServer () {
   })
   serverP.handler = DEFAULT_HANDLER
   let closeTimeout
-  const init = async (Clazz, opts) => {
+  serverP.init = async (opts = {}) => {
     if (opts.key) {
       opts.keys = [opts.key]
     }
@@ -54,11 +54,11 @@ function createHttpsServer () {
     const { port } = server.address()
     return new Clazz({
       dohLookup: `https://localhost:${port}/query`,
+      wellKnownPort: port,
+      debug,
       ...(opts.dns || {})
     })
   }
-  serverP.init = (opts = {}) => init(HyperLookup, opts)
-  serverP.initCached = (opts = {}) => init(HyperCachedLookup, opts)
   serverP.reset = () => {
     serverP.handler = DEFAULT_HANDLER
     if (!closeTimeout) {
@@ -95,7 +95,7 @@ async function rejects (t, p, err) {
       }
     } else if (typeof err === 'function') {
       if (!(e instanceof err)) {
-        t.fail(`rejection is not instance of ${err}`)
+        t.fail(`rejection is not instance of ${err}: ${e}`)
       }
     } else if (err !== null && err !== undefined) {
       if (err !== e) {
@@ -114,7 +114,7 @@ const TEST_KEYS = [
 const TEST_KEY = TEST_KEYS[0]
 
 module.exports = {
-  server: createHttpsServer(),
+  createHttpsServer,
   rejects,
   TEST_KEYS,
   TEST_KEY

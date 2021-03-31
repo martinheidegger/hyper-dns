@@ -4,6 +4,8 @@ const { bubbleAbort } = require('@consento/promise/bubbleAbort')
 const { wrapTimeout } = require('@consento/promise/wrapTimeout')
 
 const VERSION_REGEX = /\+([^/]+)$/g
+const TTL_REGEX = /^ttl=(\d+)$/i
+const noop = () => {}
 const DEFAULTS = Object.freeze({
   // doh ... DNS over https
   dohLookups: Object.freeze([
@@ -11,11 +13,15 @@ const DEFAULTS = Object.freeze({
     'https://dns.google:443/resolve'
   ]),
   userAgent: null,
-  keyRegex: /^\s*(?:(?:hyper|dat):)?(?:\/\/)?([0-9a-f]{64})\s*$/i,
-  txtRegex: /^\s*"?(?:hyperkey|datkey)=([0-9a-f]{64})"?\s*$/i,
+  followRedirects: 6,
+  recordName: 'dat',
+  wellKnownPort: 443,
+  keyRegex: /^\s*(?:(?:hyper|dat):)?(?:\/\/)?(?<key>[0-9a-f]{64})\s*$/i,
+  txtRegex: /^\s*"?(?:hyperkey|datkey)=(?<key>[0-9a-f]{64})"?\s*$/i,
   ttl: 3600, // 1hr
+  minTTL: 30, // 1/2 min
   maxTTL: 3600 * 24 * 7, // 1 week
-  debug: () => {}
+  debug: noop
 })
 
 class ArgumentError extends Error {}
@@ -49,23 +55,43 @@ HttpStatusError.prototype.code = 'E_HTTP_STATUS'
 
 class DOHFormatError extends Error {
   constructor (body, cause, msg = 'Invalid dns-over-https record, must provide json') {
-    super(`${msg}:\n${cause}\n${body}`)
+    super(`${msg}:\n${cause ? `${cause}\n` : ''}\n${body}`)
     this.body = body
     this.cause = cause
   }
 }
 DOHFormatError.prototype.code = 'E_DOH_FORMAT'
 
-class DOHAnswerMissingError extends Error {
+class AnswerMissingError extends Error {
   constructor (record, msg = 'Invalid dns-over-https record, no answers given') {
     super(`${msg}: ${JSON.stringify(record)}`)
     this.record = record
   }
 }
-DOHAnswerMissingError.prototype.code = 'E_DOH_ANSWER_MISSING'
+AnswerMissingError.prototype.code = 'E_ANSWER_MISSING'
 
-// The URL class of node and browsers behave inconsistently
-// LightURL is a simplified
+class WellKnownLookupError extends Error {
+  constructor (href, detail, msg) {
+    super(`${msg || `well-known lookup at ${href}`} ${detail}`)
+    this.href = href
+    this.detail = detail
+  }
+}
+WellKnownLookupError.prototype.code = 'E_WN_LOOKUP'
+
+class WellKnownRecordError extends Error {
+  constructor (line, regex, msg) {
+    super(`${msg || `Invalid well-known record, must conform to ${regex}`}: ${line}`)
+    this.line = line
+    this.regex = regex
+  }
+}
+WellKnownRecordError.prototype.code = 'E_WN_RECORD'
+
+/**
+ * The URL class of node and browsers behave inconsistently
+ * LightURL is a simplified version of URL that behaves same and works with versions.
+ */
 class LightURL {
   constructor (url, version) {
     this.protocol = `${url.protocol}:`
@@ -81,7 +107,7 @@ class LightURL {
     const auth = this.username ? `${this.username}${this.password ? `:${this.password}` : ''}@` : ''
     const versionStr = this.version ? `+${this.version}` : ''
     const port = this.port ? `:${this.port}` : this.port
-    this.href = `${this.protocol}//${auth}${this.hostname}${versionStr}${port}${this.pathname}${this.search}${this.hash}`
+    this.href = `${this.protocol}${url.slashes || ''}${auth}${this.hostname}${versionStr}${port}${this.pathname}${this.search}${this.hash}`
     this.version = version
     Object.freeze(this)
   }
@@ -118,11 +144,11 @@ class HyperLookup {
     const { keyRegex } = this.opts
     const key = keyRegex.exec(name)
     if (key) {
-      return key[1]
+      return key.groups.key
     }
 
     // ensure the name is a FQDN
-    if (!name.includes('.')) {
+    if (!name.includes('.') && name !== 'localhost') {
       throw new NotFQDNError(name)
     }
 
@@ -134,21 +160,52 @@ class HyperLookup {
   }
 
   async lookup (name, opts = {}) {
+    if (opts.noWellknownDat) {
+      if (name === 'localhost') {
+        throw new ArgumentError('can not resolve localhost with the .noWellknownDat option set')
+      }
+      if (opts.noDnsOverHttps) {
+        throw new ArgumentError('.noDnsOverHttps and the .noWellknownDat option are mutually exclusive options')
+      }
+    }
+    let followRedirects = this.opts.followRedirects
+    if (opts.followRedirects !== null && opts.followRedirects !== undefined) {
+      followRedirects = parseInt(opts.followRedirects)
+      if (isNaN(followRedirects) || followRedirects < 0) {
+        throw new ArgumentError('.followRedirects needs to be >= 0')
+      }
+    }
     return wrapTimeout(async signal => {
-      const { dohLookup, txtRegex, userAgent, maxTTL, debug } = this.opts
+      const { dohLookup, keyRegex, txtRegex, userAgent, minTTL, maxTTL, debug, recordName } = this.opts
+
+      const port = opts.wellKnownPort || this.opts.wellKnownPort
       let key = null
       let { ttl } = this.opts
       try {
         // do a DNS-over-HTTPS lookup
-        const raw = await fetchDnsOverHttpsRecord(name, dohLookup, userAgent, debug, signal)
-        bubbleAbort(signal)
-        // parse the record
-        const res = parseDnsOverHttpsRecord(name, await raw.text(), txtRegex, debug)
+        let res
+        if (name !== 'localhost' && !opts.noDnsOverHttps) {
+          try {
+            const raw = await fetchDnsOverHttpsRecord(name, dohLookup, userAgent, debug, signal)
+            bubbleAbort(signal)
+            // parse the record
+            res = parseDnsOverHttpsRecord(await raw.text(), txtRegex, debug)
+          } catch (err) {
+            if (err.code !== 'E_ANSWER_MISSING' || opts.noWellknownDat) {
+              throw err
+            }
+          }
+        }
+        if (!res && !opts.noWellknownDat) {
+          const raw = await fetchWellKnownRecord(`https://${name}:${port}/.well-known/${recordName}`, followRedirects, debug, signal)
+          bubbleAbort(signal)
+          res = parseWellknownRecord(await raw.text(), keyRegex, debug)
+        }
         key = res.key
-        ttl = getTTL(res.TTL, ttl, maxTTL)
-        debug('dns-over-https lookup succeeded for "' + name + '":', key, 'ttl=' + ttl)
+        ttl = getTTL(res.TTL, ttl, minTTL, maxTTL)
+        debug('dns-over-https lookup succeeded for "%s" (ttl=%s): %s', name, ttl, key)
       } catch (error) {
-        debug('dns-over-https lookup failed for "' + name + '":', error, 'ttl=' + ttl)
+        debug('dns-over-https lookup failed for "%s" (ttl=%s): %s', name, ttl, error)
       }
       return { name, key, expires: Math.round(Date.now() + ttl * 1000) }
     }, opts)
@@ -158,6 +215,11 @@ class HyperLookup {
 Object.freeze(HyperLookup)
 Object.freeze(HyperLookup.prototype)
 
+// some protocols have always slashes
+const slashesRequired = ['file', 'https', 'http', 'ftp']
+// some protocols require to have the pathname be set to at least /
+const pathnameRequired = ['https', 'http', 'ftp']
+
 module.exports = Object.freeze({
   HyperLookup,
   DEFAULTS,
@@ -166,25 +228,32 @@ module.exports = Object.freeze({
   NotFQDNError,
   HttpStatusError,
   DOHFormatError,
-  DOHAnswerMissingError,
+  AnswerMissingError,
   LightURL,
   async resolveURL (input, opts = {}) {
     const { protocol, lookup } = opts
     const url = parseURL(input)
-    if (!url.hostname) {
-      url.hostname = url.pathname
-      url.pathname = ''
-    }
     let version
     if (!url.protocol) {
       url.protocol = protocol
     }
     if (url.protocol === protocol) {
+      if (!url.hostname) {
+        url.hostname = url.pathname
+        url.pathname = ''
+      }
       url.hostname = url.hostname.replace(VERSION_REGEX, (_match, input) => {
         version = input
         return ''
       })
       url.hostname = await lookup.resolveName(url.hostname, opts)
+    } else {
+      if (slashesRequired.includes(url.protocol)) {
+        url.slashes = '//'
+      }
+      if (pathnameRequired.includes(url.protocol) && url.pathname === '') {
+        url.pathname = '/'
+      }
     }
     return new LightURL(url, version)
   }
@@ -192,7 +261,7 @@ module.exports = Object.freeze({
 
 function parseURL (input) {
   // Extended from https://tools.ietf.org/html/rfc3986#appendix-B
-  const parts = /^(?:(?<protocol>[^:/?#]+):)?(?:\/\/(?:(?<username>[^@:]*)(?::(?<password>[^@]*))?@)?(?:(?<hostname>[^/?#:]*)(?::(?<port>[0-9]+))?)?)?(?<pathname>[^?#]*)(?:\?(?<search>[^#]*))?(?:#(?<hash>.*))?$/.exec(input)
+  const parts = /^(?:(?<protocol>[^:/?#]+):)?(?:(?<slashes>\/\/)(?:(?<username>[^@:]*)(?::(?<password>[^@]*))?@)?(?:(?<hostname>[^/?#:]*)(?::(?<port>[0-9]+))?)?)?(?<pathname>[^?#]*)(?:\?(?<search>[^#]*))?(?:#(?<hash>.*))?$/.exec(input)
   return parts.groups
 }
 
@@ -231,23 +300,23 @@ async function fetchDnsOverHttpsRecord (name, dohLookup, userAgent, debug, signa
   return res
 }
 
-function parseDnsOverHttpsRecord (name, body, dnsTxtRegex, debug) {
+function parseDnsOverHttpsRecord (body, txtRegex, debug) {
   // decode to obj
   let record
   try {
     record = JSON.parse(body)
-    if (typeof record !== 'object') {
-      throw new Error('Root needs to be and object')
-    }
   } catch (error) {
     throw new DOHFormatError(body, error)
+  }
+
+  if (typeof record !== 'object') {
+    throw new DOHFormatError(body, null, 'Root needs to be an object')
   }
 
   // find valid answers
   let { Answer: answers } = record
   if (!Array.isArray(answers) || answers.length === 0) {
-    debug('dns-over-https failed', name, 'did not give any answers')
-    throw new DOHAnswerMissingError(record)
+    throw new AnswerMissingError(record)
   }
   answers = answers.filter(a => {
     if (a === null || typeof a !== 'object') {
@@ -256,18 +325,21 @@ function parseDnsOverHttpsRecord (name, body, dnsTxtRegex, debug) {
     if (typeof a.data !== 'string') {
       return false
     }
-    const match = dnsTxtRegex.exec(a.data)
+    const match = txtRegex.exec(a.data)
     if (!match) {
       return false
     }
-    a.key = match[1]
+    if (!match.groups || !match.groups.key) {
+      throw new ArgumentError(`provided .txtRegex doesn't provide a "key" group response like /(?<key>[0-9a-f]{64})/: ${txtRegex}`)
+    }
+    a.key = match.groups.key
     return true
   })
     // Open DNS servers are not consistent in the ordering of TXT entries.
     // In order to have a consistent behavior we sort keys in case we find multiple.
     .sort((a, b) => a.key < b.key ? 1 : a.key > b.key ? -1 : 0)
   if (answers.length === 0) {
-    throw new DOHAnswerMissingError(record, 'Invalid dns-over-https record, no TXT answer given')
+    throw new AnswerMissingError(record, 'Invalid dns-over-https record, no TXT answer given')
   } else if (answers.length > 1) {
     debug('warning: multiple TXT records found, using the logically largest')
   }
@@ -276,9 +348,60 @@ function parseDnsOverHttpsRecord (name, body, dnsTxtRegex, debug) {
   return answers[0]
 }
 
-function getTTL (ttl, defaultTTL, maxTTL) {
-  if (typeof ttl !== 'number' || isNaN(ttl) || ttl < 0) {
-    return defaultTTL
+async function fetchWellKnownRecord (href, followRedirects, debug, signal) {
+  let redirectCount = 0
+  while (redirectCount < followRedirects) {
+    bubbleAbort(signal)
+    debug('well-known lookup at %s', href)
+    const res = await fetch(href, { signal, redirect: 'manual' })
+    if ([301, 302, 307, 308].includes(res.status)) {
+      const newLocation = res.headers.get('Location')
+      if (!newLocation) {
+        throw new WellKnownLookupError(href, `redirected (${res.status}) to nowhere`)
+      }
+      // resolve relative paths with original URL as base URL
+      const uri = new URL(newLocation, href)
+      if (uri.protocol !== 'https:') {
+        throw new WellKnownLookupError(href, `redirected (${res.status})} to non-https location`)
+      }
+      redirectCount++
+      debug('well-known lookup redirected from %s to %s (%s) [%s/%s]', href, uri.href, res.status, redirectCount, followRedirects)
+      href = uri.href
+    } else {
+      return res
+    }
+  }
+  throw new WellKnownLookupError(href, 'exceeded redirection limit: ' + followRedirects)
+}
+
+function parseWellknownRecord (body, keyRegex, debug) {
+  const lines = body.split('\n')
+
+  const match = keyRegex.exec(lines[0])
+  if (!match) {
+    throw new WellKnownRecordError(lines[0], keyRegex)
+  }
+  if (!match.groups || !match.groups.key) {
+    throw new ArgumentError(`provided .keyRegex doesn't provide a "key" group response like /(?<key>[0-9a-f]{64})/: ${keyRegex}`)
+  }
+  const key = match.groups.key
+  let TTL
+  if (lines[1]) {
+    try {
+      TTL = +(TTL_REGEX.exec(lines[1])[1])
+    } catch (_) {
+      debug('well-known failed to parse TTL for line: %s, must conform to %s', lines[1], TTL_REGEX)
+    }
+  }
+  return { key, TTL }
+}
+
+function getTTL (ttl, defaultTTL, minTTL, maxTTL) {
+  if (typeof ttl !== 'number' || isNaN(ttl) ) {
+    ttl = defaultTTL
+  }
+  if (ttl < minTTL) {
+    return minTTL
   }
   if (ttl > maxTTL) {
     return maxTTL

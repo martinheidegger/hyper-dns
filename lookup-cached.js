@@ -100,7 +100,7 @@ class HyperCachedLookup extends HyperLookup {
 
       bubbleAbort(signal)
 
-      const newEntry = await super.lookup(name, { signal })
+      const newEntry = await super.lookup(name, { ...opts, signal })
       try {
         await persistentCache.write(newEntry, { signal })
       } catch (err) {

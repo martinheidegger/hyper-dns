@@ -3,7 +3,9 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 
 const { test } = require('tape')
 const { RecordNotFoundError, HyperCachedLookup } = require('../lookup-cached.js')
-const { server, rejects, TEST_KEYS, TEST_KEY } = require('./helpers.js')
+const { createHttpsServer, rejects, TEST_KEYS, TEST_KEY } = require('./helpers.js')
+
+const server = createHttpsServer(HyperCachedLookup)
 
 test('gracefully clearing an empty cache', async t => {
   const dns = new HyperCachedLookup()
@@ -15,7 +17,10 @@ test('gracefully clearing an empty cache', async t => {
 test('using the ttl set to the dns record', async t => {
   const domain = 'foo.com'
   let count = 0
-  const dns = await server.initCached({
+  const dns = await server.init({
+    dns: {
+      minTTL: 0
+    },
     json: () => {
       count++
       return {
@@ -39,8 +44,9 @@ test('using the ttl set to the dns record', async t => {
 test('the maxTTL will override the ttl of the server', async t => {
   const domain = 'foo.com'
   let count = 0
-  const dns = await server.initCached({
+  const dns = await server.init({
     dns: {
+      minTTL: 0,
       maxTTL: 0.3
     },
     json: () => {
@@ -67,8 +73,9 @@ test('removing an entry from the cache', async t => {
   let ops = []
   const a = 'foo.bar'
   const b = 'me.you'
-  const dns = await server.initCached({
+  const dns = await server.init({
     dns: {
+      minTTL: 0,
       persistentCache: {
         async read (name) {
           ops.push(`read ${name}`)
@@ -122,8 +129,9 @@ test('clearing the whole cache', async t => {
   let ops = []
   const a = 'foo.bar'
   const b = 'me.you'
-  const dns = await server.initCached({
+  const dns = await server.init({
     dns: {
+      minTTL: 0,
       persistentCache: {
         async read (name) {
           ops.push(`read ${name}`)
@@ -180,8 +188,9 @@ test('flushing old entries', async t => {
   let ops = []
   const a = 'foo.bar'
   const b = 'me.you'
-  const dns = await server.initCached({
+  const dns = await server.init({
     dns: {
+      minTTL: 0,
       persistentCache: {
         async read (name) {
           ops.push(`read ${name}`)
@@ -232,9 +241,9 @@ test('flushing old entries', async t => {
   ])
 }).teardown(server.reset)
 
+// TODO: Support well-known lookup
 // TODO: Test the propagation of the abort signal
 // TODO: Test maxSize of cache
-// TODO: Support well-known lookup
 // TODO: Support IPNS lookup
 // TODO: Test typescript definitions
 // TODO: Add File System storage
@@ -242,7 +251,7 @@ test('flushing old entries', async t => {
 // TODO: Add Documentation
 
 test('parallel requests reuse promises', async t => {
-  const dns = await server.initCached({
+  const dns = await server.init({
     key: TEST_KEY
   })
   const domain = 'test.com'
@@ -256,7 +265,7 @@ test('parallel requests reuse promises', async t => {
 
 test('restoring data from persistent storage', async t => {
   let count = 0
-  const dns = await server.initCached({
+  const dns = await server.init({
     dns: {
       persistentCache: {
         async read (name) {
@@ -277,7 +286,7 @@ test('restoring data from persistent storage', async t => {
 }).teardown(server.reset)
 
 test('restoring miss from persistent storage', async t => {
-  const dns = await server.initCached({
+  const dns = await server.init({
     dns: {
       persistentCache: {
         read: async (name) => ({
@@ -288,12 +297,12 @@ test('restoring miss from persistent storage', async t => {
       }
     }
   })
-  await rejects(t, dns.resolveName('test.com'), RecordNotFoundError)
+  await rejects(t, dns.resolveName('test.com', { noWellknownDat: true }), RecordNotFoundError)
 }).teardown(server.reset)
 
 test('restoring old entry from persistent storage', async t => {
   const domain = 'test.com'
-  const dns = await server.initCached({
+  const dns = await server.init({
     key: [TEST_KEY],
     dns: {
       persistentCache: {
@@ -306,12 +315,12 @@ test('restoring old entry from persistent storage', async t => {
       }
     }
   })
-  t.equals(await dns.resolveName(domain), TEST_KEY)
+  t.equals(await dns.resolveName(domain, { noWellknownDat: true }), TEST_KEY)
 }).teardown(server.reset)
 
 test('error restoring entry from persistent storage', async t => {
   const domain = 'test.com'
-  const dns = await server.initCached({
+  const dns = await server.init({
     key: TEST_KEY,
     dns: {
       persistentCache: {
@@ -322,11 +331,11 @@ test('error restoring entry from persistent storage', async t => {
       }
     }
   })
-  t.equals(await dns.resolveName(domain), TEST_KEY)
+  t.equals(await dns.resolveName(domain, { noWellknownDat: true }), TEST_KEY)
 }).teardown(server.reset)
 
 test('ignoring restoring miss from persistent storage', async t => {
-  const dns = await server.initCached({
+  const dns = await server.init({
     key: TEST_KEY,
     dns: {
       persistentCache: {
@@ -338,11 +347,52 @@ test('ignoring restoring miss from persistent storage', async t => {
       }
     }
   })
-  t.equals(await dns.resolveName('test.com', { ignoreCachedMiss: true }), TEST_KEY)
+  t.equals(await dns.resolveName('test.com', { noWellknownDat: true, ignoreCachedMiss: true }), TEST_KEY)
+}).teardown(server.reset)
+
+test('well-known lookup with ttl', async t => {
+  let count = 0
+  const service = await server.init({
+    dns: {
+      minTTL: 0
+    },
+    handler (req, res) {
+      count++
+      t.equals(req.url, '/.well-known/dat')
+      res.end(`${TEST_KEY}
+ttl=1`)
+    }
+  })
+  t.equals(await service.resolveName('localhost'), TEST_KEY)
+  t.equals(await service.resolveName('localhost'), TEST_KEY)
+  await new Promise(resolve => setTimeout(resolve, 1100))
+  t.equals(await service.resolveName('localhost'), TEST_KEY)
+  t.equals(count, 2)
+}).teardown(server.reset)
+
+test('well-known lookup with invalid ttl', async t => {
+  let count = 0
+  const service = await server.init({
+    dns: {
+      minTTL: 0,
+      ttl: 1
+    },
+    handler (req, res) {
+      count++
+      t.equals(req.url, '/.well-known/dat')
+      res.end(`${TEST_KEY}
+ttl=a`)
+    }
+  })
+  t.equals(await service.resolveName('localhost'), TEST_KEY)
+  t.equals(await service.resolveName('localhost'), TEST_KEY)
+  await new Promise(resolve => setTimeout(resolve, 1100))
+  t.equals(await service.resolveName('localhost'), TEST_KEY)
+  t.equals(count, 2)
 }).teardown(server.reset)
 
 test('ignoring cached entry', async t => {
-  const dns = await server.initCached({
+  const dns = await server.init({
     key: TEST_KEY,
     dns: {
       persistentCache: {
@@ -354,5 +404,5 @@ test('ignoring cached entry', async t => {
       }
     }
   })
-  t.equals(await dns.resolveName('test.com', { ignoreCache: true }), TEST_KEY)
+  t.equals(await dns.resolveName('test.com', { noWellknownDat: true, ignoreCache: true }), TEST_KEY)
 }).teardown(server.reset)
