@@ -1,5 +1,6 @@
-const cached = require('./lookup-cached.js')
 const debug = require('debug')('hyper-dns')
+const cached = require('./lookup-cached.js')
+const { resolveURL } = cached
 
 let plain = () => {
   const inst = new cached.HyperCachedLookup({ debug })
@@ -9,8 +10,14 @@ let plain = () => {
 
 module.exports = Object.freeze({
   ...cached,
-  async resolveURL (input, opts) {
-    return plain().resolveURL(input, opts)
+  async resolveURL (input, opts = {}) {
+    if (!opts.lookup) {
+      opts.lookup = plain()
+    }
+    if (!opts.protocol) {
+      opts.protocol = 'hyper'
+    }
+    return resolveURL(input, opts)
   },
   async resolveName (input, opts) {
     return plain().resolveName(input, opts)

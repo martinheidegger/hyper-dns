@@ -11,7 +11,6 @@ const DEFAULTS = Object.freeze({
     'https://dns.google:443/resolve'
   ]),
   userAgent: null,
-  protocol: 'hyper',
   keyRegex: /^\s*(?:(?:hyper|dat):)?(?:\/\/)?([0-9a-f]{64})\s*$/i,
   txtRegex: /^\s*"?(?:hyperkey|datkey)=([0-9a-f]{64})"?\s*$/i,
   ttl: 3600, // 1hr
@@ -65,14 +64,34 @@ class DOHAnswerMissingError extends Error {
 }
 DOHAnswerMissingError.prototype.code = 'E_DOH_ANSWER_MISSING'
 
-class VersionURL extends URL {
-  constructor (input, version, base) {
-    super(input, base)
+// The URL class of node and browsers behave inconsistently
+// LightURL is a simplified
+class LightURL {
+  constructor (url, version) {
+    this.protocol = `${url.protocol}:`
+    this.host = url.hostname ? (url.port ? `${url.hostname}:${url.port}` : url.hostname) : ''
+    this.hostname = url.hostname || ''
+    this.pathname = url.pathname || ''
+    this.search = url.search ? `?${url.search}` : ''
+    this.hash = url.hash ? `#${url.hash}` : ''
+    this.username = url.username || ''
+    this.password = url.password || ''
+    this.port = url.port || ''
     this.version = version
+    const auth = this.username ? `${this.username}${this.password ? `:${this.password}` : ''}@` : ''
+    const versionStr = this.version ? `+${this.version}` : ''
+    const port = this.port ? `:${this.port}` : this.port
+    this.href = `${this.protocol}//${auth}${this.hostname}${versionStr}${port}${this.pathname}${this.search}${this.hash}`
+    this.version = version
+    Object.freeze(this)
   }
 
   toString () {
-    return `${this.protocol}//${this.username ? `${this.username}:${this.password}@` : ''}${this.hostname}+${this.version}${this.port ? `:${this.port}` : ''}${this.pathname}${this.search}${this.hash}`
+    return this.href
+  }
+
+  toJSON () {
+    return this.href
   }
 }
 
@@ -93,49 +112,6 @@ class HyperLookup {
     if (!(opts.txtRegex instanceof RegExp)) {
       throw new ArgumentError('opts.txtRegex must be a RegExp object')
     }
-  }
-
-  async resolveURL (input, opts = {}) {
-    const url = parseURL(input)
-    if (!url.hostname) {
-      url.hostname = url.pathname
-      url.pathname = ''
-    }
-    let version
-    if (!url.protocol) {
-      url.protocol = this.opts.protocol
-    }
-    if (url.protocol === this.opts.protocol) {
-      url.hostname = url.hostname.replace(VERSION_REGEX, (_match, input) => {
-        version = input
-        return ''
-      })
-      url.hostname = await this.resolveName(url.hostname, opts)
-    }
-    const protocol = `${url.protocol}:`
-    const host = url.hostname ? (url.port ? `${url.hostname}:${url.port}` : url.hostname) : ''
-    const hostname = url.hostname || ''
-    const pathname = url.pathname || ''
-    const search = url.search ? `?${url.search}` : ''
-    const hash = url.hash ? `#${url.hash}` : ''
-    const username = url.username || ''
-    const password = url.password || ''
-    const port = url.port || ''
-    const href = `${protocol}//${username ? `${username}${password ? `:${password}` : ''}@` : ''}${hostname}${version ? `+${version}` : ''}${port ? `:${port}`: port}${pathname}${search}${hash}`
-    return Object.defineProperties(
-      version ? new VersionURL(href, version) : new URL(href),
-      {
-        protocol: { get () { return protocol } },
-        host: { get () { return host } },
-        port: { get () { return port } },
-        hostname: { get () { return hostname } },
-        pathname: { get () { return pathname } },
-        username: { get () { return username } },
-        password: { get () { return password } },
-        search: { get () { return search } },
-        hash: { get () { return hash } }
-      }
-    )
   }
 
   async resolveName (name, opts = {}) {
@@ -191,7 +167,27 @@ module.exports = Object.freeze({
   HttpStatusError,
   DOHFormatError,
   DOHAnswerMissingError,
-  VersionURL
+  LightURL,
+  async resolveURL (input, opts = {}) {
+    const { protocol, lookup } = opts
+    const url = parseURL(input)
+    if (!url.hostname) {
+      url.hostname = url.pathname
+      url.pathname = ''
+    }
+    let version
+    if (!url.protocol) {
+      url.protocol = protocol
+    }
+    if (url.protocol === protocol) {
+      url.hostname = url.hostname.replace(VERSION_REGEX, (_match, input) => {
+        version = input
+        return ''
+      })
+      url.hostname = await lookup.resolveName(url.hostname, opts)
+    }
+    return new LightURL(url, version)
+  }
 })
 
 function parseURL (input) {

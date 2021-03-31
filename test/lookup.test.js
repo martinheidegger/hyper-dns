@@ -2,7 +2,7 @@
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 
 const { test } = require('tape')
-const { HyperLookup, ArgumentError, RecordNotFoundError, NotFQDNError } = require('../lookup.js')
+const { HyperLookup, ArgumentError, RecordNotFoundError, NotFQDNError, resolveURL } = require('../lookup.js')
 const { server, rejects, TEST_KEY, TEST_KEYS } = require('./helpers.js')
 
 test('instantiation', t => {
@@ -146,12 +146,22 @@ test('full url as name', async t => {
   t.equals(await dns.resolveName('https://me:you@some.sub.test.com+1:442234/fancy?pants#hello'), 'some.sub.test.com')
 }).teardown(server.reset)
 
+test('invalid http status from doh server', async t => {
+  const dns = await server.init({
+    handler: (_req, res) => {
+      res.writeHead(400)
+      res.end('not found')
+    }
+  })
+  await rejects(t, dns.resolveName('test.com'), RecordNotFoundError)
+}).teardown(server.reset)
+
 test('resolve urls', async t => {
   const keys = {
     'foo.com': 'a1',
     'bar.foo.com': 'b2'
   }
-  const dns = await server.init({
+  const lookup = await server.init({
     dns: {
       txtRegex: /^\s*"?(?:hyperkey|datkey)=(.*)"?\s*$/i
     },
@@ -164,28 +174,19 @@ test('resolve urls', async t => {
       }
     }
   })
-  t.same((await dns.resolveURL('hyper://foo.com')).toString(), 'hyper://a1')
-  t.same((await dns.resolveURL('foo.com+a1234')).toString(), 'hyper://a1+a1234')
-  t.same((await dns.resolveURL('https://me@foo.com+a1234:1234')).toString(), 'https://me@foo.com+a1234:1234/')
-  const complex = await dns.resolveURL('hyper://me:you@bar.foo.com+ab19:4324/me/and/you?q=hi#hash')
-  t.same(complex.domain, undefined, 'hyper urls have no domain')
-  t.same(complex.username, 'me')
-  t.same(complex.password, 'you')
-  t.same(complex.port, '4324')
-  t.same(complex.hostname, 'b2')
-  t.same(complex.version, 'ab19')
-  t.same(complex.pathname, '/me/and/you')
-  t.same(complex.search, '?q=hi')
-  t.same(complex.hash, '#hash')
-  t.same(complex.toString(), 'hyper://me:you@b2+ab19:4324/me/and/you?q=hi#hash')
-}).teardown(server.reset)
-
-test('invalid http status from doh server', async t => {
-  const dns = await server.init({
-    handler: (_req, res) => {
-      res.writeHead(400)
-      res.end('not found')
-    }
-  })
-  await rejects(t, dns.resolveName('test.com'), RecordNotFoundError)
+  const opts = { lookup, protocol: 'hyper' }
+  t.same((await resolveURL('hyper://foo.com', opts)).toString(), 'hyper://a1')
+  t.same((await resolveURL('foo.com+a1234', opts)).toString(), 'hyper://a1+a1234')
+  t.same((await resolveURL('https://me@foo.com+a1234:1234', opts)).toString(), 'https://me@foo.com+a1234:1234')
+  const url = await resolveURL('hyper://me:you@bar.foo.com+ab19:4324/me/and/you?q=hi#hash', opts)
+  t.same(url.protocol, 'hyper:')
+  t.same(url.username, 'me')
+  t.same(url.password, 'you')
+  t.same(url.port, '4324')
+  t.same(url.hostname, 'b2')
+  t.same(url.version, 'ab19')
+  t.same(url.pathname, '/me/and/you')
+  t.same(url.search, '?q=hi')
+  t.same(url.hash, '#hash')
+  t.same(url.toString(), 'hyper://me:you@b2+ab19:4324/me/and/you?q=hi#hash')
 }).teardown(server.reset)
