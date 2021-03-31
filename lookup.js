@@ -397,7 +397,7 @@ function parseWellknownRecord (body, keyRegex, debug) {
 }
 
 function getTTL (ttl, defaultTTL, minTTL, maxTTL) {
-  if (typeof ttl !== 'number' || isNaN(ttl) ) {
+  if (typeof ttl !== 'number' || isNaN(ttl)) {
     ttl = defaultTTL
   }
   if (ttl < minTTL) {
