@@ -65,6 +65,7 @@ test('well-known lookup', async t => {
   const service = await server.init({
     handler (req, res) {
       t.equals(req.url, '/.well-known/dat')
+      res.setHeader('access-control-allow-origin', '*')
       res.end(TEST_KEY)
     }
   })
@@ -78,7 +79,7 @@ test('well-known lookup error (wrong format)', async t => {
       res.end('abcd')
     }
   })
-  await rejects(t, service.resolveName('localhost'), RecordNotFoundError)
+  await rejects(t, service.resolveName('localhost', { corsWarning: null }), RecordNotFoundError)
 }).teardown(server.reset)
 
 for (const code of [301, 302, 307, 308]) {
@@ -95,7 +96,7 @@ for (const code of [301, 302, 307, 308]) {
         }
       }
     })
-    t.equals(await service.resolveName('localhost'), TEST_KEY)
+    t.equals(await service.resolveName('localhost', { corsWarning: null }), TEST_KEY)
   }).teardown(server.reset)
 }
 
@@ -107,7 +108,7 @@ test('error while well-known lookup (redirect without location)', async t => {
       res.end('.')
     }
   })
-  await rejects(t, service.resolveName('localhost'), RecordNotFoundError)
+  await rejects(t, service.resolveName('localhost', { corsWarning: null }), RecordNotFoundError)
 }).teardown(server.reset)
 
 test('error while well-known lookup (redirect without https)', async t => {
@@ -119,11 +120,14 @@ test('error while well-known lookup (redirect without https)', async t => {
       res.end('.')
     }
   })
-  await rejects(t, service.resolveName('localhost'), RecordNotFoundError)
+  await rejects(t, service.resolveName('localhost', { corsWarning: null }), RecordNotFoundError)
 }).teardown(server.reset)
 
 test('error while well-known lookup (too many redirects)', async t => {
   const service = await server.init({
+    dns: {
+      corsWarning: null
+    },
     handler (req, res) {
       t.equals(req.url, '/.well-known/dat')
       res.statusCode = 302
@@ -271,3 +275,21 @@ test('resolve urls', async t => {
   t.same(url.toString(), expectedHref)
   t.same(url.toJSON(), expectedHref)
 }).teardown(server.reset)
+
+test('Successful test against cblgh.org', async t => {
+  const dns = new HyperLookup({
+    debug: require('debug')('cabal'),
+    keyRegex: /^\s*(?:cabal:)?(?:\/\/)?(?<key>[0-9a-f]{64})\s*$/i,
+    txtRegex: /^\s*"?(?:cabalkey)=(?<key>[0-9a-f]{64})"?\s*$/i,
+    recordName: 'cabal'
+  })
+  t.equals(await dns.resolveName('cblgh.org'), '13c5012eb19decbb72336d66407d19e5bd7d2794c645f36cca480cc02aede220')
+})
+
+const ecosystem = 'dns-test-setup.dat-ecosystem.org'
+test(`Successful test against ${ecosystem}`, async t => {
+  const hopKey = '222231b5589a5099aa3610a8ee550dcd454c3e33f4cac93b7d41b6b850cde222'
+  t.equals(await (new HyperLookup({ recordName: 'dat-hop-3', corsWarning: null })).resolveName(ecosystem, { noDnsOverHttps: true }), hopKey, 'successful redirects')
+  await rejects(t, (new HyperLookup({ recordName: 'dat-hop-3', corsWarning: null })).resolveName(ecosystem, { noDnsOverHttps: true, followRedirects: 2 }), RecordNotFoundError, 'too many redirects')
+  await rejects(t, (new HyperLookup({ recordName: 'dat-hop-3', corsWarning: null })).resolveName(ecosystem, { noDnsOverHttps: true, followRedirects: 0 }), RecordNotFoundError, '0 redirects limit')
+})

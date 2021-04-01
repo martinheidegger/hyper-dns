@@ -6,6 +6,7 @@ const { wrapTimeout } = require('@consento/promise/wrapTimeout')
 const VERSION_REGEX = /\+([^/]+)$/g
 const TTL_REGEX = /^ttl=(\d+)$/i
 const noop = () => {}
+const CORS_WARNING = (name, url) => `Warning, the well-known lookup for "${name}" at ${url} does not serve with the http-header access-control-allow-origin=*. This means that while this domain works in the current environment it is not universally accessible and does not conform to the standard. Please contact the host and ask them to add the http-header, thanks!`
 const DEFAULTS = Object.freeze({
   // doh ... DNS over https
   dohLookups: Object.freeze([
@@ -21,6 +22,7 @@ const DEFAULTS = Object.freeze({
   ttl: 3600, // 1hr
   minTTL: 30, // 1/2 min
   maxTTL: 3600 * 24 * 7, // 1 week
+  corsWarning: (name, url) => `${CORS_WARNING(name, url)} If you wish to hide this error, set opts.corsWarning to null.`,
   debug: noop
 })
 
@@ -175,6 +177,7 @@ class HyperLookup {
         throw new ArgumentError('.followRedirects needs to be >= 0')
       }
     }
+    const corsWarning = opts.corsWarning !== undefined ? opts.corsWarning : this.opts.corsWarning
     return wrapTimeout(async signal => {
       const { dohLookup, keyRegex, txtRegex, userAgent, minTTL, maxTTL, debug, recordName } = this.opts
 
@@ -197,7 +200,7 @@ class HyperLookup {
           }
         }
         if (!res && !opts.noWellknownDat) {
-          const raw = await fetchWellKnownRecord(`https://${name}:${port}/.well-known/${recordName}`, followRedirects, debug, signal)
+          const raw = await fetchWellKnownRecord(name, `https://${name}:${port}/.well-known/${recordName}`, followRedirects, corsWarning, debug, signal)
           bubbleAbort(signal)
           res = parseWellknownRecord(await raw.text(), keyRegex, debug)
         }
@@ -348,12 +351,15 @@ function parseDnsOverHttpsRecord (body, txtRegex, debug) {
   return answers[0]
 }
 
-async function fetchWellKnownRecord (href, followRedirects, debug, signal) {
+async function fetchWellKnownRecord (name, href, followRedirects, corsWarning, debug, signal) {
   let redirectCount = 0
   while (redirectCount < followRedirects) {
     bubbleAbort(signal)
     debug('well-known lookup at %s', href)
     const res = await fetch(href, { signal, redirect: 'manual' })
+    if (corsWarning && res.headers.get('access-control-allow-origin') !== '*') {
+      console.warn(corsWarning(name, res.url))
+    }
     if ([301, 302, 307, 308].includes(res.status)) {
       const newLocation = res.headers.get('Location')
       if (!newLocation) {

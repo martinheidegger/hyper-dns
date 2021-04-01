@@ -354,7 +354,8 @@ test('well-known lookup with ttl', async t => {
   let count = 0
   const service = await server.init({
     dns: {
-      minTTL: 0
+      minTTL: 0,
+      corsWarning: null
     },
     handler (req, res) {
       count++
@@ -375,6 +376,7 @@ test('well-known lookup with invalid ttl', async t => {
   const service = await server.init({
     dns: {
       minTTL: 0,
+      corsWarning: false,
       ttl: 1
     },
     handler (req, res) {
