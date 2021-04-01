@@ -1,4 +1,4 @@
-const QuickLRU = require('quick-lru')
+const loadQuickLRU = import('quick-lru')
 const { bubbleAbort } = require('@consento/promise/bubbleAbort')
 const { wrapTimeout } = require('@consento/promise/wrapTimeout')
 const lookup = require('./lookup.js')
@@ -22,39 +22,42 @@ class HyperCachedLookup extends HyperLookup {
       ...CACHED_DEFAULTS,
       ...opts
     })
-    this.cache = new QuickLRU({
-      maxSize: this.opts.maxSize
+    this.cache = loadQuickLRU.then(({ default: QuickLRU }) => {
+      return new QuickLRU({
+        maxSize: this.opts.maxSize
+      })
     })
     this.processes = {}
   }
 
   async clearName (name, opts = {}) {
-    const { debug } = this.opts
+    const { debug, persistentCache } = this.opts
     return wrapTimeout(async signal => {
       debug('deleting cache entry', name)
-      await this.opts.persistentCache.clearName(name, { signal })
-      this.cache.delete(name)
+      await persistentCache.clearName(name, { signal })
+      ;(await this.cache).delete(name)
     }, opts)
   }
 
   async clear (opts = {}) {
-    const { debug } = this.opts
+    const { debug, persistentCache } = this.opts
     return wrapTimeout(async signal => {
       debug('clearing cache')
-      await this.opts.persistentCache.clear({ signal })
-      this.cache.clear()
+      await persistentCache.clear({ signal })
+      ;(await this.cache).clear()
     }, opts)
   }
 
   async flush (opts = {}) {
-    const { debug } = this.opts
+    const { debug, persistentCache } = this.opts
     return wrapTimeout(async signal => {
       debug('flushing cache')
-      await this.opts.persistentCache.flush({ signal })
+      await persistentCache.flush({ signal })
       const now = Date.now()
-      for (const { name, expires } of this.cache.values()) {
+      const cache = await this.cache
+      for (const { name, expires } of cache.values()) {
         if (expires < now) {
-          this.cache.delete(name)
+          cache.delete(name)
         }
       }
     }, opts)
@@ -69,13 +72,14 @@ class HyperCachedLookup extends HyperLookup {
     }
 
     const process = wrapTimeout(async signal => {
+      const cache = await this.cache
       if (!ignoreCache) {
-        let cacheEntry = this.cache.get(name)
+        let cacheEntry = cache.get(name)
         if (cacheEntry === undefined) {
           try {
             debug('restoring from persistent cache', name)
             cacheEntry = await persistentCache.read(name, { signal })
-            this.cache.set(name, cacheEntry)
+            cache.set(name, cacheEntry)
           } catch (err) {
             debug('error while restoring "' + name + '":', err)
           }
@@ -106,7 +110,7 @@ class HyperCachedLookup extends HyperLookup {
       } catch (err) {
         debug('persisting cache failed:', err)
       }
-      this.cache.set(name, newEntry)
+      cache.set(name, newEntry)
       return newEntry
     }, opts).finally(() => {
       if (this.processes[name] === process) {
