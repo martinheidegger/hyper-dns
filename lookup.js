@@ -140,12 +140,18 @@ class HyperLookup {
     if (!(opts.txtRegex instanceof RegExp)) {
       throw new ArgumentError('opts.txtRegex must be a RegExp object')
     }
+    if (isNaN(opts.followRedirects) || opts.followRedirects < 0) {
+      throw new ArgumentError('opts.followRedirects needs to be >= 0')
+    }
   }
 
   async resolveName (name, opts = {}) {
     const { keyRegex } = this.opts
     const key = keyRegex.exec(name)
     if (key) {
+      if (!key.groups || !key.groups.key) {
+        throw new ArgumentError(`provided opts.keyRegex doesn't provide a "key" group response like /(?<key>[0-9a-f]{64})/: ${keyRegex}`)
+      }
       return key.groups.key
     }
 
@@ -164,17 +170,17 @@ class HyperLookup {
   async lookup (name, opts = {}) {
     if (opts.noWellknownDat) {
       if (name === 'localhost') {
-        throw new ArgumentError('can not resolve localhost with the .noWellknownDat option set')
+        throw new ArgumentError('can not resolve localhost with the opts.noWellknownDat option set')
       }
       if (opts.noDnsOverHttps) {
-        throw new ArgumentError('.noDnsOverHttps and the .noWellknownDat option are mutually exclusive options')
+        throw new ArgumentError('opts.noDnsOverHttps and the .noWellknownDat option are mutually exclusive options')
       }
     }
     let followRedirects = this.opts.followRedirects
     if (opts.followRedirects !== null && opts.followRedirects !== undefined) {
       followRedirects = parseInt(opts.followRedirects)
       if (isNaN(followRedirects) || followRedirects < 0) {
-        throw new ArgumentError('.followRedirects needs to be >= 0')
+        throw new ArgumentError('opts.followRedirects needs to be >= 0')
       }
     }
     const corsWarning = opts.corsWarning !== undefined ? opts.corsWarning : this.opts.corsWarning
@@ -208,6 +214,9 @@ class HyperLookup {
         ttl = getTTL(res.TTL, ttl, minTTL, maxTTL)
         debug('dns-over-https lookup succeeded for "%s" (ttl=%s): %s', name, ttl, key)
       } catch (error) {
+        if (error instanceof ArgumentError) {
+          throw error
+        }
         debug('dns-over-https lookup failed for "%s" (ttl=%s): %s', name, ttl, error)
       }
       return { name, key, expires: Math.round(Date.now() + ttl * 1000) }
@@ -333,7 +342,7 @@ function parseDnsOverHttpsRecord (body, txtRegex, debug) {
       return false
     }
     if (!match.groups || !match.groups.key) {
-      throw new ArgumentError(`provided .txtRegex doesn't provide a "key" group response like /(?<key>[0-9a-f]{64})/: ${txtRegex}`)
+      throw new ArgumentError(`provided opts.txtRegex doesn't provide a "key" group response like /(?<key>[0-9a-f]{64})/: ${txtRegex}`)
     }
     a.key = match.groups.key
     return true
@@ -388,7 +397,7 @@ function parseWellknownRecord (body, keyRegex, debug) {
     throw new WellKnownRecordError(lines[0], keyRegex)
   }
   if (!match.groups || !match.groups.key) {
-    throw new ArgumentError(`provided .keyRegex doesn't provide a "key" group response like /(?<key>[0-9a-f]{64})/: ${keyRegex}`)
+    throw new ArgumentError(`provided opts.keyRegex doesn't provide a "key" group response like /(?<key>[0-9a-f]{64})/: ${keyRegex}`)
   }
   const key = match.groups.key
   let TTL

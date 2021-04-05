@@ -3,6 +3,7 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 
 const { test } = require('tape')
 const { RecordNotFoundError, HyperCachedLookup } = require('../lookup-cached.js')
+const { ArgumentError } = require('../lookup.js')
 const { createHttpsServer, rejects, TEST_KEYS, TEST_KEY } = require('./helpers.js')
 
 const server = createHttpsServer(HyperCachedLookup)
@@ -12,6 +13,7 @@ test('gracefully clearing an empty cache', async t => {
   await dns.clear()
   await dns.clearName('hello')
   await dns.flush()
+  await dns.close()
 })
 
 test('using the ttl set to the dns record', async t => {
@@ -85,6 +87,9 @@ test('removing an entry from the cache', async t => {
         },
         async write ({ name }) {
           ops.push(`write ${name}`)
+        },
+        async close () {
+          ops.push('close')
         }
       }
     },
@@ -118,10 +123,13 @@ test('removing an entry from the cache', async t => {
   t.equals(await dns.resolveName(a), TEST_KEY)
   t.equals(await dns.resolveName(a), TEST_KEY)
   t.equals(await dns.resolveName(b), TEST_KEY)
+  await dns.close()
+  await dns.close() // Duplicate closes shouldn't make a problem
   t.deepEquals(ops, [
     `read ${a}`,
     `json ${a}`,
-    `write ${a}`
+    `write ${a}`,
+    'close'
   ])
 }).teardown(server.reset)
 
@@ -241,13 +249,15 @@ test('flushing old entries', async t => {
   ])
 }).teardown(server.reset)
 
-// TODO: Support well-known lookup
-// TODO: Test the propagation of the abort signal
-// TODO: Test maxSize of cache
-// TODO: Support IPNS lookup
-// TODO: Test typescript definitions
+// TODO: hosts?
 // TODO: Add File System storage
 // TODO: Add CLI
+// TODO: Test the propagation of the abort signal
+// TODO: Test maxSize of cache
+// TODO: Use byte api instead of
+// TODO: Test typescript definitions
+// TODO: Support IPNS lookup
+// TODO: Add ara support: https://github.com/AraBlocks/ara-identity-dns/blob/master/index.js#L121
 // TODO: Add Documentation
 
 test('parallel requests reuse promises', async t => {
@@ -272,7 +282,7 @@ test('restoring data from persistent storage', async t => {
           count++
           return {
             name,
-            key: 'abcd',
+            key: TEST_KEY,
             expires: Date.now() + 1000
           }
         }
@@ -280,8 +290,8 @@ test('restoring data from persistent storage', async t => {
     }
   })
   const domain = 'test.com'
-  t.equals(await dns.resolveName(domain), 'abcd')
-  t.equals(await dns.resolveName(domain), 'abcd')
+  t.equals(await dns.resolveName(domain), TEST_KEY)
+  t.equals(await dns.resolveName(domain), TEST_KEY)
   t.equals(count, 1, 'after initial resolve, the local cache is used')
 }).teardown(server.reset)
 
@@ -391,6 +401,64 @@ ttl=a`)
   await new Promise(resolve => setTimeout(resolve, 1100))
   t.equals(await service.resolveName('localhost'), TEST_KEY)
   t.equals(count, 2)
+}).teardown(server.reset)
+
+test('cache entry ignored when result of wrong type', async t => {
+  const dns = await server.init({
+    key: TEST_KEY,
+    dns: { persistentCache: { read: async () => '' } }
+  })
+  t.equals(await dns.resolveName('test.com', { noWellknownDat: true }), TEST_KEY)
+}).teardown(server.reset)
+
+test('cache entry ignored when result.expires of wrong type', async t => {
+  const dns = await server.init({
+    key: TEST_KEY,
+    dns: { persistentCache: { read: async () => ({ expires: '12', key: TEST_KEY }) } }
+  })
+  t.equals(await dns.resolveName('test.com', { noWellknownDat: true }), TEST_KEY)
+}).teardown(server.reset)
+
+test('cache entry ignored when result.expires is NaN', async t => {
+  const dns = await server.init({
+    key: TEST_KEY,
+    dns: { persistentCache: { read: async () => ({ expires: parseInt('a'), key: TEST_KEY }) } }
+  })
+  t.equals(await dns.resolveName('test.com', { noWellknownDat: true }), TEST_KEY)
+}).teardown(server.reset)
+
+test('cache entry ignored when result.expires is too far into future', async t => {
+  const dns = await server.init({
+    key: TEST_KEY,
+    dns: {
+      maxTTL: 1,
+      persistentCache: { read: async () => ({ expires: Date.now() + 1200 }) }
+    }
+  })
+  t.equals(await dns.resolveName('test.com', { noWellknownDat: true }), TEST_KEY)
+}).teardown(server.reset)
+
+test('cache entry ignored when result.key is invalid', async t => {
+  const dns = await server.init({
+    key: TEST_KEY,
+    dns: {
+      maxTTL: 1,
+      persistentCache: { read: async () => ({ expires: Date.now(), key: 'abcd' }) }
+    }
+  })
+  t.equals(await dns.resolveName('test.com', { noWellknownDat: true }), TEST_KEY)
+}).teardown(server.reset)
+
+test('error of keyRegex', async t => {
+  const dns = await server.init({
+    key: TEST_KEY,
+    dns: {
+      maxTTL: 1,
+      keyRegex: /xxx:.{4}/,
+      persistentCache: { read: async () => ({ expires: Date.now(), key: 'xxx:abcd' }) }
+    }
+  })
+  await rejects(t, dns.resolveName('test.com'), ArgumentError)
 }).teardown(server.reset)
 
 test('ignoring cached entry', async t => {

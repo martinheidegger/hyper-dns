@@ -9,13 +9,38 @@ const server = createHttpsServer(HyperLookup)
 test('instantiation', async t => {
   const service = new HyperLookup()
   t.ok(service.opts.dohLookups.includes(service.opts.dohLookup))
+  t.equals(new HyperLookup({ followRedirects: 0 }).opts.followRedirects, 0)
+  t.equals(new HyperLookup({ followRedirects: 1 }).opts.followRedirects, 1)
 })
 
 test('wrong arguments', async t => {
   t.throws(() => new HyperLookup({ keyRegex: 'abcd' }), ArgumentError)
   t.throws(() => new HyperLookup({ txtRegex: 'abcd' }), ArgumentError)
   await rejects(t, (new HyperLookup()).resolveName('localhost', { noWellknownDat: true }), ArgumentError)
+  t.throws(() => new HyperLookup({ followRedirects: -1 }), ArgumentError)
 })
+
+test('wrong keyRegex/txtRegex detection', async t => {
+  const keyRegex = /^a$/
+  const txtRegex = /^datkey=a$/
+  const key = 'a'
+  await rejects(t, (new HyperLookup({ keyRegex })).resolveName(key), ArgumentError, 'wrong keyRegex detected when resolving names')
+  const wellKnownService = await server.init({
+    dns: { keyRegex },
+    handler (req, res) {
+      t.equals(req.url, '/.well-known/dat')
+      res.setHeader('access-control-allow-origin', '*')
+      res.end(key)
+    }
+  })
+  await rejects(t, wellKnownService.resolveName('localhost'), ArgumentError)
+  server.reset()
+  const dnsService = await server.init({
+    dns: { txtRegex },
+    key
+  })
+  await rejects(t, dnsService.resolveName('test.com'), ArgumentError)
+}).teardown(server.reset)
 
 test('support for keys', async t => {
   const key = '14bc77d788fdaf07b89b28e9d276e47f2e44011f4adb981921056e1b3b40e99e'
@@ -71,6 +96,16 @@ test('well-known lookup', async t => {
   })
   t.equals(await service.resolveName('localhost'), TEST_KEY)
 }).teardown(server.reset)
+
+test('well-known lookup and dns-over-https cant be disabled at the same time', async t => {
+  const dns = new HyperLookup({})
+  await rejects(t, dns.resolveName('test.com', { noWellknownDat: true, noDnsOverHttps: true }), ArgumentError)
+})
+
+test('redirects for well-known lookup need to be positive numbers', async t => {
+  const dns = new HyperLookup({})
+  await rejects(t, dns.resolveName('test.com', { followRedirects: -1 }), ArgumentError)
+})
 
 test('well-known lookup error (wrong format)', async t => {
   const service = await server.init({
@@ -293,3 +328,52 @@ test(`Successful test against ${ecosystem}`, async t => {
   await rejects(t, (new HyperLookup({ recordName: 'dat-hop-3', corsWarning: null })).resolveName(ecosystem, { noDnsOverHttps: true, followRedirects: 2 }), RecordNotFoundError, 'too many redirects')
   await rejects(t, (new HyperLookup({ recordName: 'dat-hop-3', corsWarning: null })).resolveName(ecosystem, { noDnsOverHttps: true, followRedirects: 0 }), RecordNotFoundError, '0 redirects limit')
 })
+
+test('cors warning for well-known lookups', async t => {
+  const domain = 'localhost'
+  const lookup = await server.init({
+    dns: {
+      txtRegex: /^\s*"?(?:hyperkey|datkey)=(?<key>.*)"?\s*$/i
+    },
+    handler: (req, res) => {
+      console.log(req.url)
+      if (req.url === `/query?name=${encodeURIComponent(domain)}.&type=TXT`) {
+        res.end('{}')
+      } else if (req.url === '/.well-known/dat') {
+        res.end(`${TEST_KEY}\nttl=10`)
+      } else {
+        t.fail(`unexpected url: ${req.url}`)
+        res.end('err')
+      }
+    }
+  })
+  t.equals(await lookup.resolveName(domain), TEST_KEY)
+}).teardown(server.reset)
+
+test('custom cors warning for well-known lookups', async t => {
+  const domain = 'localhost'
+  let corsWarningExecuted = 0
+  const lookup = await server.init({
+    dns: {
+      txtRegex: /^\s*"?(?:hyperkey|datkey)=(?<key>.*)"?\s*$/i,
+      corsWarning: (name, url) => {
+        t.equals(name, 'localhost')
+        t.match(url, /^https:\/\/localhost:[0-9]{4,5}\/\.well-known\/dat$/)
+        corsWarningExecuted++
+      }
+    },
+    handler: (req, res) => {
+      console.log(req.url)
+      if (req.url === `/query?name=${encodeURIComponent(domain)}.&type=TXT`) {
+        res.end('{}')
+      } else if (req.url === '/.well-known/dat') {
+        res.end(`${TEST_KEY}\nttl=10`)
+      } else {
+        t.fail(`unexpected url: ${req.url}`)
+        res.end('err')
+      }
+    }
+  })
+  t.equals(await lookup.resolveName(domain), TEST_KEY)
+  t.equals(corsWarningExecuted, 1)
+}).teardown(server.reset)
