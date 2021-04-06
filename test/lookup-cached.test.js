@@ -282,7 +282,9 @@ test('restoring data from persistent storage', async t => {
           count++
           return {
             name,
-            key: TEST_KEY,
+            keys: {
+              hyper: TEST_KEY
+            },
             expires: Date.now() + 1000
           }
         }
@@ -301,7 +303,9 @@ test('restoring miss from persistent storage', async t => {
       persistentCache: {
         read: async (name) => ({
           name,
-          key: null,
+          keys: {
+            hyper: null
+          },
           expires: Date.now() + 1000
         })
       }
@@ -318,7 +322,9 @@ test('restoring old entry from persistent storage', async t => {
       persistentCache: {
         read: async (name) => ({
           name,
-          key: TEST_KEYS[1],
+          keys: {
+            hyper: TEST_KEYS[1]
+          },
           expires: Date.now() - 1
         }),
         write: async () => {}
@@ -351,7 +357,9 @@ test('ignoring restoring miss from persistent storage', async t => {
       persistentCache: {
         read: async (name) => ({
           name,
-          key: null,
+          keys: {
+            hyper: null
+          },
           expires: Date.now() + 1000
         })
       }
@@ -414,7 +422,7 @@ test('cache entry ignored when result of wrong type', async t => {
 test('cache entry ignored when result.expires of wrong type', async t => {
   const dns = await server.init({
     key: TEST_KEY,
-    dns: { persistentCache: { read: async () => ({ expires: '12', key: TEST_KEY }) } }
+    dns: { persistentCache: { read: async () => ({ expires: '12', keys: { hyper: TEST_KEY } }) } }
   })
   t.equals(await dns.resolveName('test.com', { noWellknownDat: true }), TEST_KEY)
 }).teardown(server.reset)
@@ -422,7 +430,7 @@ test('cache entry ignored when result.expires of wrong type', async t => {
 test('cache entry ignored when result.expires is NaN', async t => {
   const dns = await server.init({
     key: TEST_KEY,
-    dns: { persistentCache: { read: async () => ({ expires: parseInt('a'), key: TEST_KEY }) } }
+    dns: { persistentCache: { read: async () => ({ expires: parseInt('a'), keys: { hyper: TEST_KEY } }) } }
   })
   t.equals(await dns.resolveName('test.com', { noWellknownDat: true }), TEST_KEY)
 }).teardown(server.reset)
@@ -432,18 +440,29 @@ test('cache entry ignored when result.expires is too far into future', async t =
     key: TEST_KEY,
     dns: {
       maxTTL: 1,
-      persistentCache: { read: async () => ({ expires: Date.now() + 1200 }) }
+      persistentCache: { read: async () => ({ expires: Date.now() + 1200, keys: {} }) }
     }
   })
   t.equals(await dns.resolveName('test.com', { noWellknownDat: true }), TEST_KEY)
 }).teardown(server.reset)
 
-test('cache entry ignored when result.key is invalid', async t => {
+test('cache entry ignored when result.keys is invalid', async t => {
   const dns = await server.init({
     key: TEST_KEY,
     dns: {
       maxTTL: 1,
-      persistentCache: { read: async () => ({ expires: Date.now(), key: 'abcd' }) }
+      persistentCache: { read: async () => ({ expires: Date.now(), keys: null }) }
+    }
+  })
+  t.equals(await dns.resolveName('test.com', { noWellknownDat: true }), TEST_KEY)
+}).teardown(server.reset)
+
+test('cache entry ignored when result.keys.hyper is invalid', async t => {
+  const dns = await server.init({
+    key: TEST_KEY,
+    dns: {
+      maxTTL: 1,
+      persistentCache: { read: async () => ({ expires: Date.now(), keys: { hyper: 'abcd' } }) }
     }
   })
   t.equals(await dns.resolveName('test.com', { noWellknownDat: true }), TEST_KEY)
@@ -455,7 +474,7 @@ test('error of keyRegex', async t => {
     dns: {
       maxTTL: 1,
       keyRegex: /xxx:.{4}/,
-      persistentCache: { read: async () => ({ expires: Date.now(), key: 'xxx:abcd' }) }
+      persistentCache: { read: async () => ({ expires: Date.now(), keys: { hyper: 'xxx:abcd' } }) }
     }
   })
   await rejects(t, dns.resolveName('test.com'), ArgumentError)
@@ -468,7 +487,9 @@ test('ignoring cached entry', async t => {
       persistentCache: {
         read: async (name) => ({
           name,
-          key: TEST_KEYS[1],
+          keys: {
+            hyper: TEST_KEYS[1]
+          },
           expires: Date.now() + 1000
         })
       }

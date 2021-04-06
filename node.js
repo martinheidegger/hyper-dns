@@ -1,15 +1,23 @@
 const debug = require('debug')('hyper-dns')
 const cached = require('./lookup-cached.js')
+const { SQLiteCache, DEFAULTS: SQLITE_DEFAULTS } = require('./sqlite-cache')
 const { resolveURL } = cached
 
 let plain = () => {
-  const inst = new cached.HyperCachedLookup({ debug })
+  const inst = new cached.HyperCachedLookup({
+    debug,
+    persistentCache: new SQLiteCache({
+      debug
+    })
+  })
   plain = () => inst
   return inst
 }
 
 module.exports = Object.freeze({
   ...cached,
+  SQLiteCache,
+  SQLITE_DEFAULTS,
   async resolveURL (input, opts = {}) {
     if (!opts.lookup) {
       opts.lookup = plain()

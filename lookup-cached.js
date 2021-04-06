@@ -100,26 +100,31 @@ class HyperCachedLookup extends HyperLookup {
               expires = persisted.expires
             }
             let key
-            if (persisted.key !== null && typeof persisted.key !== 'string') {
-              debug('persisted entry for "%s" contained invalid key %s', name, persisted.key)
+            if (typeof persisted.keys !== 'object' || persisted.keys === null) {
+              debug('persisted entry for "%s" contained unexpected type for .keys: %s', name, persisted.keys)
             } else {
-              if (persisted.key === null) {
-                key = null
+              const { hyper } = persisted.keys
+              if (hyper !== null && typeof hyper !== 'string') {
+                debug('persisted entry for "%s" contained invalid key %s', name, hyper)
               } else {
-                const match = keyRegex.exec(persisted.key)
-                if (!match) {
-                  debug('persisted entry for "%s", "%s" didnt match .keyRegex pattern %s', name, persisted.key, keyRegex)
+                if (hyper === null) {
+                  key = null
                 } else {
-                  if (!match.groups || !match.groups.key) {
-                    throw new ArgumentError(`provided opts.keyRegex doesn't provide a "key" group response like /(?<key>[0-9a-f]{64})/: ${keyRegex}`)
+                  const match = keyRegex.exec(hyper)
+                  if (!match) {
+                    debug('persisted entry for "%s", "%s" didnt match .keyRegex pattern %s', name, hyper, keyRegex)
                   } else {
-                    key = match.groups.key
+                    if (!match.groups || !match.groups.key) {
+                      throw new ArgumentError(`provided opts.keyRegex doesn't provide a "key" group response like /(?<key>[0-9a-f]{64})/: ${keyRegex}`)
+                    } else {
+                      key = match.groups.key
+                    }
                   }
                 }
               }
             }
             if (key !== undefined) {
-              cacheEntry = { name, key, expires }
+              cacheEntry = { name, keys: { hyper: key }, expires }
               cache.set(name, cacheEntry)
             }
           }
@@ -128,8 +133,8 @@ class HyperCachedLookup extends HyperLookup {
           const now = Date.now()
           if (cacheEntry.expires < now) {
             debug('cache for "%s" expired: %s < %s', name, cacheEntry.expires, now)
-          } else if (cacheEntry.key !== null) {
-            debug('cache resolved "%s" to %s', name, cacheEntry.key)
+          } else if (cacheEntry.keys.hyper !== null) {
+            debug('cache resolved "%s" to %s', name, cacheEntry.keys.hyper)
             return cacheEntry
           } else if (!ignoreCachedMiss) {
             debug('cache resolved "%s" as miss', name)

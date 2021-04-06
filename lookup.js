@@ -161,10 +161,10 @@ class HyperLookup {
     }
 
     const entry = await this.lookup(cleanName(name), opts)
-    if (entry.key === null) {
+    if (entry.keys.hyper === null) {
       throw new RecordNotFoundError(name)
     }
-    return entry.key
+    return entry.keys.hyper
   }
 
   async lookup (name, opts = {}) {
@@ -191,7 +191,6 @@ class HyperLookup {
       let key = null
       let { ttl } = this.opts
       try {
-        // do a DNS-over-HTTPS lookup
         let res
         if (name !== 'localhost' && !opts.noDnsOverHttps) {
           try {
@@ -219,7 +218,7 @@ class HyperLookup {
         }
         debug('dns-over-https lookup failed for "%s" (ttl=%s): %s', name, ttl, error)
       }
-      return { name, key, expires: Math.round(Date.now() + ttl * 1000) }
+      return { name, keys: { hyper: key }, expires: Math.round(Date.now() + ttl * 1000) }
     }, opts)
   }
 }

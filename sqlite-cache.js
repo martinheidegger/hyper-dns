@@ -1,11 +1,13 @@
 const Database = require('better-sqlite3')
 const fs = require('fs')
+const envPaths = require('env-paths')
+const path = require('path')
 
-const Q_CREATE_TABLE = 'CREATE TABLE IF NOT EXISTS $table (name TEXT PRIMARY KEY NOT NULL, key TEXT, expires INTEGER NOT NULL)'
-const Q_WRITE = 'REPLACE INTO $table (name, key, expires) VALUES ($name, $key, $expires)'
+const Q_CREATE_TABLE = 'CREATE TABLE IF NOT EXISTS $table (name TEXT NOT NULL, protocol TEXT NOT NULL, expires INTEGER NOT NULL, key TEXT, PRIMARY KEY (name, protocol))'
+const Q_WRITE = 'REPLACE INTO $table (name, protocol, key, expires) VALUES ($name, $protocol, $key, $expires)'
 const Q_CLEAR_NAME = 'DELETE FROM $table WHERE name = $name'
 const Q_CLEAR = 'DELETE FROM $table'
-const Q_READ = 'SELECT key, expires from $table WHERE name = $name'
+const Q_READ = 'SELECT key, protocol, expires from $table WHERE name = $name'
 const Q_FLUSH = 'DELETE FROM $table WHERE expires < $now'
 
 function createDB (file, table, debug) {
@@ -28,14 +30,20 @@ function createDB (file, table, debug) {
   return db
 }
 
+const DEFAULTS = Object.freeze({
+  table: 'names',
+  protocols: '*',
+  autoClose: 5000,
+  debug: () => {},
+  maxWalSize: 10 * 1024 * 1024, // 10 MB
+  walCheckInterval: 5000, // 5s
+  file: path.join(envPaths('hyper-dns').cache, 'cache.db')
+})
+
 class SQLiteCache {
   constructor (opts = {}) {
     this.opts = {
-      table: 'names',
-      autoClose: 5000,
-      debug: () => {},
-      maxWalSize: 10 * 1024 * 1024, // 10 MB
-      walCheckInterval: 5000, // 5s
+      ...DEFAULTS,
       ...opts
     }
     this.db = null
@@ -46,6 +54,7 @@ class SQLiteCache {
     const { file, table, debug, autoClose } = this.opts
     if (db === null || !db.open) {
       debug('opening db')
+      fs.mkdirSync(path.dirname(file), { recursive: true })
       db = createDB(file, table, debug)
       db.pragma('journal_mode = WAL')
       const _close = db.close
@@ -101,13 +110,13 @@ class SQLiteCache {
     )
   }
 
-  get (query, args) {
+  all (query, args) {
     const { debug } = this.opts
     return this.execStatement(
       query,
       statement => {
         debug('%s -- %s', statement.source, args)
-        return statement.get(args)
+        return statement.all(args)
       }
     )
   }
@@ -121,11 +130,25 @@ class SQLiteCache {
   }
 
   async read (name) {
-    return this.get(Q_READ, { name })
+    return this.all(Q_READ, { name })
+      .reduce(
+        (result, entry) => {
+          if (result === null) {
+            result = { keys: {}, expires: Number.MAX_VALUE }
+          }
+          result.keys[entry.protocol] = entry.key
+          result.expires = Math.min(result.expires, entry.expires)
+          return result
+        },
+        null
+      )
   }
 
   async write (cacheEntry) {
-    this.run(Q_WRITE, cacheEntry)
+    const { name, expires } = cacheEntry
+    for (const [protocol, key] of Object.entries(cacheEntry.keys)) {
+      this.run(Q_WRITE, { name, protocol, expires, key })
+    }
   }
 
   async flush () {
@@ -140,4 +163,10 @@ class SQLiteCache {
   }
 }
 
-module.exports.SQLiteCache = SQLiteCache
+Object.freeze(SQLiteCache)
+Object.freeze(SQLiteCache.prototype)
+
+module.exports = Object.freeze({
+  SQLiteCache: SQLiteCache,
+  DEFAULTS
+})

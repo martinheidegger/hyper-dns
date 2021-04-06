@@ -1,4 +1,5 @@
-const { resolveName, lookup, resolveURL, clearName, clear, flush, HyperLookup, DEFAULTS } = require('..')
+const browser = require('../browser')
+const { resolveName, lookup, resolveURL, clearName, clear, flush, HyperLookup, DEFAULTS } = browser
 const { test } = require('tape')
 
 const TEST_DOMAIN = 'dns-test-setup.dat-ecosystem.org'
@@ -19,7 +20,7 @@ test(`looking up test domain: ${TEST_DOMAIN}`, async t => {
   const start = Date.now()
   const result = await lookup(TEST_DOMAIN)
   t.equals(result.name, TEST_DOMAIN)
-  t.equals(result.key, TEST_KEY)
+  t.equals(result.keys.hyper, TEST_KEY)
   t.ok(result.expires > start)
   t.ok(result.expires <= Math.round(Date.now() + TEST_TTL * 1000))
 })
@@ -54,4 +55,9 @@ test(`Successful test against ${ecosystem}`, async t => {
   for (const dohLookup of DEFAULTS.dohLookups) {
     t.equals(await (new HyperLookup({ dohLookup })).resolveName(ecosystem, { noWellknownDat: true }), dnsKey, `doh-provider ${dohLookup}`)
   }
+})
+
+test('SQLite is not available on browsers', async t => {
+  t.throws(() => browser.SQLiteCache)
+  t.throws(() => browser.SQLITE_DEFAULTS)
 })
