@@ -1,45 +1,49 @@
-const debug = require('debug')('hyper-dns')
-const cached = require('./lookup-cached.js')
-const { resolveURL } = cached
+/* global fetch:readable */
+const base = require('./resolve.js')
 
-let plain = () => {
-  const inst = new cached.HyperLookup({
-    debug
-  })
-  plain = () => inst
-  return inst
+async function resolveTxtFallback (_domain) {
+  throw new Error('Non of the specified dns-over-https providers returned a valid result.')
 }
 
+const createBrowserResolveContext = base.createResolveContext.bind(null, fetch, resolveTxtFallback)
+const cache = base.createCacheLRU()
+
+function createCacheSqlite () {
+  throw new Error('createCacheSqlite not available in browser environment.')
+}
+createCacheSqlite.DEFAULTS = Object.freeze({})
+Object.freeze(createCacheSqlite)
+
 module.exports = Object.freeze({
-  ...cached,
-  get SQLiteCache () {
-    throw new Error('SQLiteCache not available in browser environment.')
-  },
-  get SQLITE_DEFAULTS () {
-    throw new Error('SQLITE_DEFAULTS not available in browser environment.')
-  },
-  async resolveURL (input, opts = {}) {
-    if (!opts.lookup) {
-      opts.lookup = plain()
-    }
-    if (!opts.protocol) {
-      opts.protocol = 'hyper'
-    }
-    return resolveURL(input, opts)
-  },
-  async resolveName (input, opts) {
-    return plain().resolveName(input, opts)
-  },
-  async lookup (input, opts) {
-    return plain().lookup(input, opts)
-  },
-  async clear () {
-    // noop
-  },
-  async clearName () {
-    // noop
-  },
-  async flush () {
-    // noop
-  }
+  ...base,
+  cache,
+  createCacheSqlite,
+  ...addDefaults(async function resolveProtocol (protocol, name, opts) {
+    return base.resolveProtocol(createBrowserResolveContext, protocol, name, {
+      cache,
+      ...opts
+    })
+  }, base.resolveProtocol),
+  ...addDefaults(async function resolve (name, opts) {
+    return base.resolve(createBrowserResolveContext, name, {
+      cache,
+      ...opts
+    })
+  }, base.resolve),
+  ...addDefaults(async function resolveURL (url, opts) {
+    return base.resolveURL(createBrowserResolveContext, url, {
+      cache,
+      ...opts
+    })
+  }, base.resolveURL)
 })
+
+function addDefaults (fn, baseFn) {
+  fn.DEFAULTS = {
+    ...baseFn.DEFAULTS,
+    cache
+  }
+  return {
+    [fn.name]: Object.freeze(fn)
+  }
+}
