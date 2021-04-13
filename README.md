@@ -40,7 +40,7 @@ The power of `hyper-dns` in comparison to other, protocol-specific implementatio
 - [Architecture Overview][] _…to learn how caching and other things work._ 🕵️‍♀️
 - [API documentation][] _…for getting to know the API in detail._ 🧑‍💻
 - [Contribution Guide][] _…because help is always welcome._ 🥳
-- [Protocol Guide][] _…for current protocols and adding a ones._ 🤠
+- [Protocol Guide][] _…for current protocols and adding new ones._ 🤠
 
 [Architecture Overview]: ./docs/architecture.md
 [API documentation]: ./docs/api.md
