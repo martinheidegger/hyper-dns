@@ -28,7 +28,9 @@ There are three core API's of hyper-dns, each optimized for a different usecases
       url.protocol // to contain the best matching protocol for the given domain
       url.hostname // to contain the key, if a decentralized key was found
       url.pathname // other url properties exist as well.
-    } catch (error) { /* An error may be thrown if no protocol can be matched! */ }
+    } catch (error) {
+      /* An error may be thrown if no protocol can be matched! */
+    }
     ```
 
 ## The Core API
@@ -41,7 +43,7 @@ Returns either `null` if no key could be found or a `string` containing the key.
 
 - `protocol` name of the protocol or a protocol implementation
 - `name` name to be looked up
-- `opts.dohLookups` (optional) array of https endpoints to look up DNS entires at
+- `opts.dohLookups` (optional) array of https endpoints to look up DNS records
 - `opts.userAgent` (optional) `string` or `null` of the user-agent to be used during https requests
 - `opts.cache` (Cache, optional) Caching implementation to be used during execution, set to `null` or `undefined` to prevent caching. (see [Cache](#cache))
 - `opts.ignoreCache` (boolean, default=`false`) Can be used to ignore the content of the cache. Note: this is different from setting `opts.cache = null` in that a result will be written to cache even if `ignoreCache` is true.
@@ -84,14 +86,24 @@ Returns a `LightURL` instance that contains all properties of the input url in a
 The `resolveURL` API has two different modes that behave slightly different:
 
 1. If you pass in a URL like `hyper://dat-ecosystem.org` with a full protocol specified, it will look up only the `hyper` protocol and throw a `require('hyper-dns').RecordNotFoundError` if no record for that protocol could be found.
+
+    ```js
+    try {
+      const url = await resolveURL('hyper://dat-ecosystem.org')
+      url.href === 'hyper://ae14a...fc651' // if a hyper record was found
+    } catch (err) {
+      err.code === 'ENOTFOUND' // if no HYPER record was found
+    }
+    ```
+
 2. If you pass in a URL like `dat-ecosystem.org` it will try, with preference, all given protocols and use the first result as result. If non of the protocols could be found it will fall-back to `opts.fallbackProtocol`.
 
-```js
-const url = await resolveURL('dat-ecosystem.org')
-
-url.href === 'hyper://dat-ecosystem.org' // if a hyper record was found
-url.href === 'https://dat-ecosystem.org' // if no record was found
-```
+    ```js
+    const url = await resolveURL('dat-ecosystem.org')
+    
+    url.href === 'hyper://ae14a...fc651' // if a hyper record was found
+    url.href === 'https://dat-ecosystem.org' // if no record was found
+    ```
 
 // TODO...
 
