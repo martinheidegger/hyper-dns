@@ -35,14 +35,16 @@ async function resolveTxtFallback (domain) {
   return (await resolveTxt(domain)).map(data => ({ data: data[0] }))
 }
 
-const createResolveContext = base.createResolveContext.bind(null, fetch, resolveTxtFallback)
+function createResolveContext (opts, signal) {
+  return base.createResolveContext(fetch, resolveTxtFallback, opts, signal)
+}
 const cache = createCacheSqlite()
 
 module.exports = Object.freeze({
   ...base,
   cache,
   createCacheSqlite,
-  createResolveContext,
+  ...addProperties(createResolveContext, base.createResolveContext),
   ...addDefaults(async function resolveProtocol (protocol, name, opts) {
     return base.resolveProtocol(createResolveContext, protocol, name, {
       cache,
@@ -62,6 +64,15 @@ module.exports = Object.freeze({
     })
   }, base.resolveURL)
 })
+
+function addProperties (fn, baseFn) {
+  for (const [key, value] of Object.entries(baseFn)) {
+    fn[key] = value
+  }
+  return {
+    [fn.name]: Object.freeze(fn)
+  }
+}
 
 function addDefaults (fn, baseFn) {
   fn.DEFAULTS = {
