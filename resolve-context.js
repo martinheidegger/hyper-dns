@@ -151,7 +151,7 @@ async function fetchWellKnownRecord (fetch, name, href, followRedirects, opts, s
       return
     }
     if (corsWarning && res.headers.get('access-control-allow-origin') !== '*') {
-      console.warn(corsWarning(name, res.url))
+      corsWarning(name, res.url)
     }
     if ([301, 302, 307, 308].includes(res.status)) {
       const newLocation = res.headers.get('Location')

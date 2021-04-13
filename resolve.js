@@ -151,10 +151,12 @@ resolveProtocol.DEFAULTS = Object.freeze({
   userAgent: null,
   cache: null,
   protocols: Object.freeze(Object.values(protocols)),
+  ignoreCache: false,
+  ignoreCachedMiss: false,
   ttl: 60 * 60, // 1hr
   minTTL: 30, // 1/2min
   maxTTL: 60 * 60 * 24 * 7, // 1 week
-  corsWarning: (name, url) => `${CORS_WARNING(name, url)} If you wish to hide this error, set opts.corsWarning to null.`
+  corsWarning: (name, url) => console.log(`${CORS_WARNING(name, url)} If you wish to hide this error, set opts.corsWarning to null.`)
 })
 Object.freeze(resolveProtocol)
 
@@ -235,6 +237,7 @@ async function resolveURL (createLookupContext, input, opts) {
 }
 resolveURL.DEFAULTS = Object.freeze({
   ...resolve.DEFAULTS,
+  protocolPreference: null,
   fallbackProtocol: 'https'
 })
 Object.freeze(resolveURL)
