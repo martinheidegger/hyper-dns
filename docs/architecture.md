@@ -1,4 +1,4 @@
-# 🏠 Architecture
+# 🏠 Architecture Overview
 
 When starting this project, it seemed simple but it turns out there are a few things that were not obvious and hide quite a bit of complexity.
 
