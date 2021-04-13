@@ -1,4 +1,3 @@
-
 function fetchResponse (opts = {}) {
   return {
     url: opts.url,
@@ -38,16 +37,7 @@ async function rejects (t, p, err) {
   }
 }
 
-const TEST_KEYS = [
-  '100c77d788fdaf07b89b28e9d276e47f2e44011f4adb981921056e1b3b40e99e',
-  '200c77d788fdaf07b89b28e9d276e47f2e44011f4adb981921056e1b3b40e99e',
-  '300c77d788fdaf07b89b28e9d276e47f2e44011f4adb981921056e1b3b40e99e'
-]
-const TEST_KEY = TEST_KEYS[0]
-
 module.exports = {
   fetchResponse,
   rejects,
-  TEST_KEYS,
-  TEST_KEY
 }

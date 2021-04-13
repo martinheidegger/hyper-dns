@@ -72,26 +72,19 @@ async function resolveProtocol (createLookupContext, protocol, name, opts = {}) 
     let isCachedEntry = true
     const { cache, ignoreCache, ignoreCachedMiss, minTTL, maxTTL } = opts
     if (!ignoreCache && cache) {
-      try {
-        entry = await cache.get(protocol.name, name, signal)
-        bubbleAbort(signal)
-      } catch (error) {
-        if (error instanceof AbortError || error instanceof TypeError) {
-          throw error
-        }
-        debug('Error while restoring protocol %s and name %s from cache: %s', protocol.name, name, error)
-      }
-      entry = await sanitizeCacheEntry(protocol, name, entry)
+      entry = await getCacheEntry(cache, protocol, name, entry)
       if (entry !== undefined) {
         const now = Date.now()
         if (entry.expires < now) {
-          debug('Cached entry for protocol %s and name %s has expired: %s < %s', protocol.name, name, entry.expires, now)
+          debug('Cached entry for %s:%s has expired: %s < %s', protocol.name, name, entry.expires, now)
         } else if (entry.key === null) {
           if (!ignoreCachedMiss) {
-            return entry
+            return null
+          } else {
+            debug('Ignoring cached miss for %s:%s because of user option.', protocol.name, name)
           }
         } else {
-          return entry
+          return entry.key
         }
       }
     }
@@ -127,27 +120,17 @@ async function resolveProtocol (createLookupContext, protocol, name, opts = {}) 
       if (error instanceof AbortError || error instanceof TypeError) {
         throw error
       }
-      if (cache) {
-        try {
-          debug('Falling back to lookup entry in cache, as error occured while looking up %s:%s: %s', protocol.name, name, error)
-          entry = await cache.get(protocol.name, name, signal)
-          bubbleAbort(signal)
-        } catch (error) {
-          if (error instanceof AbortError || error instanceof TypeError) {
-            throw error
-          }
-          debug('Error while restoring %s:%s from cache: %s', protocol.name, name, error)
-        }
-      } else {
-        debug('Error while looking up %s:%s: %s', protocol.name, name, error)
+      if (ignoreCache && cache) {
+        debug('Falling back to cache, as error occured while looking up %s:%s: %s', protocol.name, name, error)
+        entry = await getCacheEntry(cache, protocol, name, entry)
+        return entry ? entry.key : null
       }
       if (entry !== undefined) {
-        entry = await sanitizeCacheEntry(protocol, name, entry)
-        if (entry !== undefined) {
-          debug('Using cached entry(expires=%s) because looking up %s:%s failed: %s', entry.key, entry.expires, protocol.name, name, error)
-        }
+        debug('Using cached entry(expires=%s) because looking up %s:%s failed: %s', entry.expires, protocol.name, name, error)
+        return entry.key
       }
-      return entry
+      debug('Error while looking up %s:%s: %s', protocol.name, name, error)
+      return null
     }
     const now = Date.now()
     if (cache && !isCachedEntry && entry.expires !== null && now < entry.expires && entry.expires <= now + maxTTL * 1000) {
@@ -157,7 +140,7 @@ async function resolveProtocol (createLookupContext, protocol, name, opts = {}) 
         debug('Error while storing protocol %s and name %s in cache: %s', protocol.name, name, error)
       }
     }
-    return entry
+    return entry.key
   }, createLookupContext, opts)
 }
 resolveProtocol.DEFAULTS = Object.freeze({
@@ -190,14 +173,7 @@ async function resolve (createLookupContext, name, opts = {}) {
     }
     await Promise.all(protocols.map(async protocol => {
       protocol = getProtocol(opts, protocol)
-      let result = await resolveProtocol(createLookupContext, protocol, name, childOpts)
-      if (result === undefined) {
-        result = {
-          key: null,
-          expires: null
-        }
-      }
-      keys[protocol.name] = result
+      keys[protocol.name] = await resolveProtocol(createLookupContext, protocol, name, childOpts)
     }))
     return keys
   }, createLookupContext, opts)
@@ -228,18 +204,18 @@ async function resolveURL (createLookupContext, input, opts) {
         signal
       }
       if (url.protocol) {
-        const res = await resolveProtocol(createLookupContext, url.protocol, url.hostname, childOpts)
-        if (res !== undefined && res.key !== null) {
-          url.hostname = res.key
+        const key = await resolveProtocol(createLookupContext, url.protocol, url.hostname, childOpts)
+        if (key !== null) {
+          url.hostname = key
         } else {
           throw new RecordNotFoundError(url.hostname)
         }
       } else {
         for (const protocol of getProtocols(opts)) {
-          const res = await resolveProtocol(createLookupContext, protocol, url.hostname, childOpts)
-          if (res !== undefined && res.key !== null) {
+          const key = await resolveProtocol(createLookupContext, protocol, url.hostname, childOpts)
+          if (key !== null) {
             url.protocol = protocol.name
-            url.hostname = res.key
+            url.hostname = key
             url.slashes = '//'
             break
           }
@@ -342,7 +318,17 @@ const sanitizingContext = Object.freeze({
   async fetchWellKnown () {}
 })
 
-async function sanitizeCacheEntry (protocol, name, entry) {
+async function getCacheEntry (cache, protocol, name, signal) {
+  let entry
+  try {
+    entry = await cache.get(protocol.name, name, signal)
+    bubbleAbort(signal)
+  } catch (error) {
+    if (error instanceof AbortError || error instanceof TypeError) {
+      throw error
+    }
+    debug('Error while restoring %s:%s from cache: %s', protocol.name, name, error)
+  }
   if (entry === undefined) {
     return
   }

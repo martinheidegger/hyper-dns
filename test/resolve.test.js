@@ -5,6 +5,7 @@ const { AbortError } = require('@consento/promise/AbortError')
 const { test } = require('tape')
 const { resolveProtocol, resolve, resolveURL, RecordNotFoundError } = require('../resolve.js')
 const { rejects } = require('./helpers.js')
+const createCacheLRU = require('../cache-lru.js')
 
 const dummyCtx = () => ({})
 
@@ -15,49 +16,65 @@ function tRange (t, from, entry, to) {
 test('basic resolving', async t => {
   const testContext = {}
   const testName = 'Foo'
+  const key = 'Bar'
+  const cache = createCacheLRU()
   const createContext = (opts, signal) => {
-    t.deepEquals(opts, resolveProtocol.DEFAULTS)
+    t.deepEquals(opts, {
+      ...resolveProtocol.DEFAULTS,
+      cache
+    })
     t.equals(signal, undefined)
     return testContext
   }
   const start = Date.now()
-  const { key, expires } = await resolveProtocol(createContext, async function testProtocol (context, name) {
-    t.equals(context, testContext)
-    t.equals(name, testName)
-    return {
-      key: 'bar',
-      ttl: 40
-    }
-  }, testName)
-  t.equals(key, 'bar')
-  tRange(t, 40000, expires - start, 40100)
+  t.same(
+    await resolveProtocol(createContext, async function test (context, name) {
+      t.equals(context, testContext)
+      t.equals(name, testName)
+      return {
+        key,
+        ttl: 40
+      }
+    }, testName, { cache }),
+    key
+  )
+  tRange(t, 40000, (await cache.get('test', testName)).expires - start, 40100)
 })
 
 test('null resolving', async t => {
   const start = Date.now()
-  const { key, expires } = await resolveProtocol(dummyCtx, async function testProtocol () {
-    return { key: null, ttl: 1 }
-  }, 'hello')
-  t.same(key, null)
-  tRange(t, 30000, expires - start, 30100)
+  const cache = createCacheLRU()
+  t.same(
+    await resolveProtocol(dummyCtx, async function test () {
+      return { key: null, ttl: 1 }
+    }, 'hello', { cache }),
+    null
+  )
+  tRange(t, 30000, (await cache.get('test', 'hello')).expires - start, 30100)
 })
 
 test('maintaining minTTL', async t => {
   const start = Date.now()
-  const { key, expires } = await resolveProtocol(dummyCtx, async function testProtocol () {
-    return { key: null, ttl: 1 }
-  }, 'hello', { minTTL: 100 })
-  t.same(key, null)
-  tRange(t, 100000, expires - start, 100100)
+  const cache = createCacheLRU()
+  t.same(
+    await resolveProtocol(dummyCtx, async function test () {
+      return { key: null, ttl: 1 }
+    }, 'hello', { minTTL: 100, cache }),
+    null
+  )
+  tRange(t, 100000, (await cache.get('test', 'hello')).expires - start, 100100)
 })
 
 test('maintaining maxTTL', async t => {
   const start = Date.now()
-  const { key, expires } = await resolveProtocol(dummyCtx, async function testProtocol () {
-    return { key: null, ttl: 200 }
-  }, 'hello', { maxTTL: 100 })
-  t.same(key, null)
-  tRange(t, 100000, expires - start, 100100)
+  const cache = createCacheLRU()
+  t.same(
+    await resolveProtocol(dummyCtx, async function test () {
+      return { key: null, ttl: 200 }
+    }, 'hello', { maxTTL: 100, cache }),
+    null
+  )
+  tRange(t, 100000, (await cache.get('test', 'hello')).expires - start, 100100)
 })
 
 test('resolving protocol by name', async t => {
@@ -76,19 +93,6 @@ test('unsupported protocol rejects', async t => {
   await rejects(t, resolveProtocol(dummyCtx, 'foo', 'bar', {
     protocols: []
   }), TypeError)
-})
-
-const hackedName = 'hacked:protocol:name'
-const hackedProtocol = function () {}
-Object.defineProperty(test, 'name', {
-  get () {
-    return hackedName
-  }
-})
-test('invalid protocol rejects', async t => {
-  await rejects(t, resolveProtocol(dummyCtx, hackedProtocol, 'bar'), TypeError)
-}, {
-  skip: hackedProtocol.name !== hackedName
 })
 
 test('storing resolved entry in cache', async t => {
@@ -139,7 +143,7 @@ test('retreiving entry from cache', async t => {
         }
       }
     ),
-    result
+    result.key
   )
 })
 
@@ -165,7 +169,7 @@ test('retreiving miss from cache', async t => {
         }
       }
     ),
-    result
+    result.key
   )
 })
 
@@ -189,7 +193,7 @@ test('ignoring expired cache entry', async t => {
         cache: { get: async () => cached }
       }
     ),
-    { key: 'fetched', expires: null }
+    'fetched'
   )
 })
 
@@ -214,7 +218,7 @@ test('ignoring cache option', async t => {
         ignoreCache: true
       }
     ),
-    { key: 'fetched', expires: null }
+    'fetched'
   )
 })
 
@@ -227,10 +231,6 @@ test('ignoring cache-miss if specified', async t => {
     key: 'fetched',
     ttl: null
   }
-  const expected = {
-    key: fetched.key,
-    expires: null
-  }
   t.deepEquals(
     await resolveProtocol(
       dummyCtx,
@@ -239,16 +239,11 @@ test('ignoring cache-miss if specified', async t => {
       },
       'foo',
       {
-        cache: {
-          get: async () => cached,
-          set: async (_, __, entry) => {
-            t.deepEquals(entry, expected)
-          }
-        },
+        cache: { get: async () => cached },
         ignoreCachedMiss: true
       }
     ),
-    expected
+    'fetched'
   )
 })
 
@@ -271,7 +266,7 @@ test('Falling back to cached entry (even expired) when resolve resulted in error
         cache: { get: async () => cached }
       }
     ),
-    cached
+    cached.key
   )
 })
 
@@ -295,7 +290,7 @@ test('Falling back to cached entry (even ignored!) when resolve resulted in erro
         ignoreCache: true
       }
     ),
-    cached
+    cached.key
   )
 })
 
@@ -312,10 +307,10 @@ test('Fetching if the cache returned with error', async t => {
       },
       'foo',
       {
-        cache: { get: async () => { throw new Error('cache error') } }
+        cache: { get: async () => { throw new Error('cache error')} },
       }
     ),
-    { key: 'fetched', expires: null }
+    'fetched'
   )
 })
 
@@ -328,7 +323,7 @@ test('Gracefully handling error from lookup', async t => {
       },
       'foo'
     ),
-    undefined
+    null
   )
 })
 
@@ -356,15 +351,15 @@ test('Gracefully handing error when fetching from the cache after resolved with 
     await resolveProtocol(
       dummyCtx,
       function testProtocol () {
-        throw new Error('fetch error')
+        throw new Error ('fetch error')
       },
       'foo',
       {
-        cache: { get: async () => { throw new Error('cache error') } },
+        cache: { get: async () => { throw new Error('cache error')} },
         ignoreCache: true
       }
     ),
-    undefined
+    null
   )
 })
 
@@ -437,7 +432,9 @@ test('timeout causes signal', async t => {
 
 test('resolving a bunch of protocols', async t => {
   const start = Date.now()
-  const result = await resolve(dummyCtx, 'hello', {
+  const cache = createCacheLRU()
+  const result = await resolve(dummyCtx, 'foo', {
+    cache,
     protocols: [
       function a () {
         return {
@@ -459,19 +456,16 @@ test('resolving a bunch of protocols', async t => {
     ]
   })
   t.deepEquals(
-    Object.entries(result).reduce((result, [name, { key }]) => {
-      result[name] = key
-      return result
-    }, {}),
+    result,
     {
       a: 'abcd',
       b: 'xyz',
       c: null
     }
   )
-  tRange(t, 30000, result.a.expires - start, 30100)
-  t.equals(result.b.expires, null)
-  tRange(t, 50000, result.c.expires - start, 50100)
+  tRange(t, 30000, (await cache.get('a', 'foo')).expires - start, 30100)
+  t.equals((await cache.get('b', 'foo')), undefined)
+  tRange(t, 50000, (await cache.get('c', 'foo')).expires - start, 50100)
 })
 
 test('gracefully handling resolve problem when resolving many', async t => {
@@ -483,12 +477,7 @@ test('gracefully handling resolve problem when resolving many', async t => {
         }
       ]
     }),
-    {
-      a: {
-        key: null,
-        expires: null
-      }
-    }
+    { a: null }
   )
 })
 

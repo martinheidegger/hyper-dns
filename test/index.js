@@ -8,7 +8,7 @@ test('fallback to system dns when doh providers fail', async t => {
     (await pkg.resolveProtocol('dat', 'dns-test-setup.dat-ecosystem.org', {
       dohLookups: [],
       cache: null
-    })).key,
+    })),
     '444231b5589a5099aa3610a8ee550dcd454c3e33f4cac93b7d41b6b850cde444'
   )
 })
@@ -24,9 +24,9 @@ test('use https proxy server', async t => {
   await new Promise(resolve => proxy.listen({ port: 0 }, resolve))
   process.env.HTTPS_PROXY = `http://localhost:${proxy.httpsPort}`
   t.equals(
-    (await pkg.resolveProtocol('dat', 'dns-test-setup.dat-ecosystem.org', {
+    await pkg.resolveProtocol('dat', 'dns-test-setup.dat-ecosystem.org', {
       cache: null
-    })).key,
+    }),
     '444231b5589a5099aa3610a8ee550dcd454c3e33f4cac93b7d41b6b850cde444'
   )
 }).teardown(() => {

@@ -3,7 +3,7 @@ const { resolveProtocol, resolveURL, resolve } = require('..')
 
 test('Successful test against cblgh.org', async t => {
   t.equals(
-    (await resolveProtocol('cabal', 'cblgh.org', { corsWarning: null, cache: null })).key,
+    await resolveProtocol('cabal', 'cblgh.org', { corsWarning: null, cache: null }),
     '13c5012eb19decbb72336d66407d19e5bd7d2794c645f36cca480cc02aede220'
   )
 })
@@ -16,7 +16,12 @@ test(`Successful test against ${ecosystem}`, async t => {
     `dat://${key}`
   )
   const results = (await resolve(ecosystem, { corsWarning: null, cache: null }))
-  t.equals(results.dat.key, key)
-  t.equals(results.hyper.key, null)
-  t.equals(results.cabal.key, null)
+  t.deepEquals(
+    results,
+    {
+      dat: key,
+      hyper: null,
+      cabal: null
+    }
+  )
 })
