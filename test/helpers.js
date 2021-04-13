@@ -39,5 +39,5 @@ async function rejects (t, p, err) {
 
 module.exports = {
   fetchResponse,
-  rejects,
+  rejects
 }

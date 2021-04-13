@@ -307,7 +307,7 @@ test('Fetching if the cache returned with error', async t => {
       },
       'foo',
       {
-        cache: { get: async () => { throw new Error('cache error')} },
+        cache: { get: async () => { throw new Error('cache error') } }
       }
     ),
     'fetched'
@@ -351,11 +351,11 @@ test('Gracefully handing error when fetching from the cache after resolved with 
     await resolveProtocol(
       dummyCtx,
       function testProtocol () {
-        throw new Error ('fetch error')
+        throw new Error('fetch error')
       },
       'foo',
       {
-        cache: { get: async () => { throw new Error('cache error')} },
+        cache: { get: async () => { throw new Error('cache error') } },
         ignoreCache: true
       }
     ),
