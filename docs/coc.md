@@ -1,0 +1,1 @@
+This project grew out of [Dat Ecosystem](https://dat-ecosystem.org) contributions and we follow the [Dat Ecosystem Code of Conduct](https://github.com/dat-ecosystem/organization/blob/main/code-of-conduct.md).
