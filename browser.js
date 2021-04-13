@@ -5,7 +5,7 @@ async function resolveTxtFallback (_domain) {
   throw new Error('Non of the specified dns-over-https providers returned a valid result.')
 }
 
-const createBrowserResolveContext = base.createResolveContext.bind(null, fetch, resolveTxtFallback)
+const createResolveContext = base.createResolveContext.bind(null, fetch, resolveTxtFallback)
 const cache = base.createCacheLRU()
 
 function createCacheSqlite () {
@@ -18,20 +18,21 @@ module.exports = Object.freeze({
   ...base,
   cache,
   createCacheSqlite,
+  createResolveContext,
   ...addDefaults(async function resolveProtocol (protocol, name, opts) {
-    return base.resolveProtocol(createBrowserResolveContext, protocol, name, {
+    return base.resolveProtocol(createResolveContext, protocol, name, {
       cache,
       ...opts
     })
   }, base.resolveProtocol),
   ...addDefaults(async function resolve (name, opts) {
-    return base.resolve(createBrowserResolveContext, name, {
+    return base.resolve(createResolveContext, name, {
       cache,
       ...opts
     })
   }, base.resolve),
   ...addDefaults(async function resolveURL (url, opts) {
-    return base.resolveURL(createBrowserResolveContext, url, {
+    return base.resolveURL(createResolveContext, url, {
       cache,
       ...opts
     })
