@@ -107,7 +107,7 @@ By default `hyper-dns` already supports following protocols
 const { dat } = require('hyper-dns').protocols
 ```
 
-The dat protocol is implemented following to match the implementation found in https://github.com/datprotocol/dat-dns, supporting 
+The dat protocol is implemented to match the implementation found in https://github.com/datprotocol/dat-dns.
 
 ### cabal
 
@@ -115,7 +115,7 @@ The dat protocol is implemented following to match the implementation found in h
 const { cabal } = require('hyper-dns').protocols
 ```
 
-The [cabal chat](https://cabal.chat/) protocol works the same way as `dat` does but has a different lookups for 
+The [cabal chat](https://cabal.chat/) protocol works the same way as `dat` does but has a different lookups for DNS entries (cabalkey=) and uses the `/.well-known/cabal` lookup.
 
 ### See a missing protocol?
 
