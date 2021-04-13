@@ -54,7 +54,7 @@ There are three core API's of hyper-dns, each optimized for a different usecases
 const { resolveProtocol, resolve, resolveURL } = require('hyper-dns')
 ```
 
-#### `async resolveProtocol(protocol, name, [opts])`
+### `async resolveProtocol(protocol, name, [opts])`
 
 Returns either `null` if no key could be found or a `string` containing the key.
 
@@ -82,7 +82,7 @@ _Note:_ `resolveProtocol.DEFAULTS` contains the object with all defaults.
 
 [CORS]: https://en.wikipedia.org/wiki/Cross-origin_resource_sharing
 
-#### `async resolve(name, [opts])`
+### `async resolve(name, [opts])`
 
 Returns an object with the `resolveProtocol()` results for all given protocols, like:
 
@@ -99,7 +99,7 @@ Returns an object with the `resolveProtocol()` results for all given protocols, 
 
 _Note:_ `resolve.DEFAULTS` contains the object with all defaults.
 
-#### `async resolveURL(url, [opts])`
+### `async resolveURL(url, [opts])`
 
 - `opts` uses the same options as `resolveProtocol` but adds:
 - `opts.protocolPreference` (optional: Array of names) order of protocols to look up with preference
@@ -167,21 +167,21 @@ interface Cache {
 
 The result of `get()` operations will be sanitizied.
 
-#### `cache`
+### `cache`
 
 The cache holds the instance for the default `opts.cache` option to be used by `resolveProtocol`, `resolve` or `resolveURL`.
 
 In browsers this will default to a `lru-cache` and in node to the `sqlite-cache`.
 
-#### `createCacheLRU([opts])`
+### `createCacheLRU([opts])`
 
 // TODO
 
-#### `createCacheSQLite([opts])`
+### `createCacheSQLite([opts])`
 
 // TODO
 
-## protocols
+## `protocols`
 
 ```javascript
 const { protocols } = require('hyper-dns')
