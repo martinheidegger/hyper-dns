@@ -12,7 +12,7 @@ It implements various naming systems such as [dat][], [hyper][] and [cabal][] bu
 After installing it through [npm][hyper-dns-npm], you can simply run it like this:
 
 ```js
-const { resolveProtocol } = require('hyper-dns')
+const { resolveProtocol, resolve, resolveURL } = require('hyper-dns')
 const protocol = 'dat'
 const domain = 'dat-ecosystem.org'
 const key = await resolveProtocol(protocol, domain)
@@ -41,11 +41,13 @@ The power of `hyper-dns` in comparison to other, protocol-specific implementatio
 - [API documentation][] _…for getting to know the API in detail._ 🧑‍💻
 - [Contribution Guide][] _…because help is always welcome._ 🥳
 - [Protocol Guide][] _…for current protocols and adding new ones._ 🤠
+- [dat-dns comparison][] _…for when you feel nostaligc._
 
 [Architecture Overview]: ./docs/architecture.md
 [API documentation]: ./docs/api.md
 [Contribution Guide]: ./docs/contributing.md
 [Protocol Guide]: ./docs/protocol.md
+[dat-dns comparison]: ./docs/dat-dns.md
 
 ## 📜 License
 
