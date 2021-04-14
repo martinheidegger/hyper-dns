@@ -19,9 +19,10 @@ test(`Successful test against ${ecosystem}`, async t => {
   t.deepEquals(
     results,
     {
-      dat: key,
+      ara: null,
       cabal: null,
-      ara: null
+      dat: key,
+      hyper: null
     }
   )
 })
