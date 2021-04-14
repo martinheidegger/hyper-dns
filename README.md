@@ -5,6 +5,7 @@ It implements various naming systems such as [dat][] or [cabal][] but is extensi
 
 [dat]: https://www.datprotocol.com/deps/0005-dns/
 [cabal]: https://cabal.chat/
+[ara]: https://ara.one/
 
 ## 🚀 Basic API
 

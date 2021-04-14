@@ -20,7 +20,20 @@ test(`Successful test against ${ecosystem}`, async t => {
     results,
     {
       dat: key,
-      cabal: null
+      cabal: null,
+      ara: null
     }
+  )
+})
+
+test('Successful test against jwerle.pub', async t => {
+  t.equals(
+    await resolveProtocol('ara', 'jwerle.pub', { corsWarning: null, cache: null }),
+    '22dea0fbb722b20ab11469ed61b2409cb0ca774a285914f160071e4e9e3b8ca8'
+  )
+
+  t.equals(
+    await resolveProtocol('dat', 'jwerle.pub', { corsWarning: null, cache: null }),
+    '22dea0fbb722b20ab11469ed61b2409cb0ca774a285914f160071e4e9e3b8ca8'
   )
 })

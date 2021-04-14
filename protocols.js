@@ -20,5 +20,16 @@ module.exports = Object.freeze({
       return record
     }
     return await context.fetchWellKnown(name, 'cabal', /^\s*(?:cabal:)?(?:\/\/)?(?<key>[0-9a-f]{64})\s*$/i, 6)
+  },
+  async ara (context, name) {
+    let record = context.matchRegex(name, /^(?<key>[0-9a-f]{64})$/i)
+    if (record !== undefined) {
+      return record
+    }
+    record = await context.getDNSTxtRecord(name, /^\s*"?(?:did:ara:)(?<key>[0-9a-f]{64})"?\s*$/i)
+    if (record !== undefined) {
+      return record
+    }
+    return await context.fetchWellKnown(name, 'ara', /^\s*(?:did:ara:)?(?:\/\/)?(?<key>[0-9a-f]{64})\s*$/i, 6)
   }
 })
