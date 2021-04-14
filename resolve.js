@@ -22,18 +22,67 @@ const slashesRequired = ['file', 'https', 'http', 'ftp']
 // some protocols require to have the pathname be set to at least /
 const pathnameRequired = ['https', 'http', 'ftp']
 
+// Extended from https://tools.ietf.org/html/rfc3986#appendix-B
+const urlRegex = /^(?:(?<protocol>[^:/?#]+):)?(?:(?<slashes>\/\/)?(?:(?<username>[^@:]*)(?::(?<password>[^@]*))?@)?(?:(?<hostname>[^/?#:+]*)(?:\+(?<version>[^/?#:]*))?(?::(?<port>[0-9]+))?)?)?(?<pathname>[^?#]+)?(?:\?(?<search>[^#]*))?(?:#(?<hash>.*))?$/
+
+function parseURL (input) {
+  const url = urlRegex.exec(input).groups
+  if (url.hostname === '.' || url.hostname === '..') {
+    url.pathname = `${url.hostname}${url.pathname}`
+    url.hostname = undefined
+  }
+  return url
+}
+
 /**
  * The URL class of node and browsers behave inconsistently
  * LightURL is a simplified version of URL that behaves same and works with versions.
  */
 class LightURL {
-  constructor (url) {
+  constructor (input, base) {
+    const url = typeof input === 'string' ? parseURL(input) : input
+    base = typeof base === 'string' ? new LightURL(base) : base || null
+    if (url.protocol === undefined) {
+      if (base !== null) {
+        const basePath = `${base.pathname || ''}`
+        url.pathname = `${basePath}${basePath.endsWith('/') ? '' : '/../'}${url.pathname}`
+        url.protocol = base.protocol ? base.protocol.substr(0, base.protocol.length - 1) : null
+        url.hostname = base.hostname
+        url.version = base.version
+        url.port = base.port
+        url.username = base.username
+        url.password = base.password
+        url.slashes = base.slashes
+      } else {
+        throw new TypeError(`Invalid URL: ${String(input)}`)
+      }
+    }
     this.protocol = url.protocol ? `${url.protocol}:` : null
     this.host = url.hostname ? (url.port ? `${url.hostname}:${url.port}` : url.hostname) : null
     this.hostname = url.hostname || null
     let pathname = url.pathname || null
-    if (pathname === null && pathnameRequired.includes(url.protocol)) {
-      pathname = '/'
+    if (pathname === null) {
+      if (pathnameRequired.includes(url.protocol)) {
+        pathname = '/'
+      }
+    } else {
+      // Processing ../ and ./ path entries
+      const path = []
+      const parts = pathname.split('/')
+      for (const entry of parts) {
+        if (entry === '.') {
+          continue
+        }
+        if (entry === '..') {
+          path.pop()
+          continue
+        }
+        path.push(entry)
+      }
+      pathname = path.join('/')
+      if (!pathname.startsWith('/')) {
+        pathname = `/${pathname}`
+      }
     }
     this.pathname = pathname
     this.search = url.search ? `?${url.search}` : null
@@ -47,7 +96,10 @@ class LightURL {
     const auth = this.username ? `${this.username}${this.password ? `:${this.password}` : ''}@` : ''
     const versionStr = this.version ? `+${this.version}` : ''
     const port = this.port ? `:${this.port}` : ''
-    this.href = `${this.protocol || ''}${slashes || ''}${auth}${this.hostname || ''}${versionStr}${port}${this.pathname || ''}${this.search || ''}${this.hash || ''}`
+    const prefix = `${this.protocol || ''}${slashes || ''}${auth}${this.hostname || ''}`
+    const postfix = `${port}${this.pathname || ''}${this.search || ''}${this.hash || ''}`
+    this.href = `${prefix}${postfix}`
+    this.versionedHref = `${prefix}${versionStr}${postfix}`
     Object.freeze(this)
   }
 
@@ -181,9 +233,6 @@ async function resolve (createLookupContext, name, opts = {}) {
 }
 resolve.DEFAULTS = resolveProtocol.DEFAULTS
 Object.freeze(resolve)
-
-// Extended from https://tools.ietf.org/html/rfc3986#appendix-B
-const urlRegex = /^(?:(?<protocol>[^:/?#]+):)?(?:(?<slashes>\/\/)?(?:(?<username>[^@:]*)(?::(?<password>[^@]*))?@)?(?:(?<hostname>[^/?#:+]*)(?:\+(?<version>[^/?#:]*))?(?::(?<port>[0-9]+))?)?)?(?<pathname>[^?#]*)(?:\?(?<search>[^#]*))?(?:#(?<hash>.*))?$/
 
 async function resolveURL (createLookupContext, input, opts) {
   const url = urlRegex.exec(input).groups

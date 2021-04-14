@@ -200,8 +200,46 @@ const { createResolveContext } = require('hyper-dns')
 
 ## `LightURL`
 
-```javascript
+Initially the [URL][] implementation was supposed to be used. Sadly browsers and node.js are not 100% compatible and furthermore decentralized web protocols also have an additional "version" specifier.
+
+This is why `hyper-dns` provides a custom `LightURL`, named to prevent confusion with the regular `URL`.
+
+```js
 const { LightURL } = require('hyper-dns')
+
+const url = new LightURL('dat://dat-ecosystem.org/organization')
+url.protocol == 'dat://'
+url.hostname == 'dat-ecosystem.org'
+url.pathname == '/organization'
+url.href == 'dat://dat-ecosystem.org/organization'
 ```
 
-// TODO
+### `new LightURL(url, [base])`
+
+- `url` (string) the url, or path segment to be used to create the string
+- `base` (string or LightURL instance, optional)
+
+The biggest incompatibility to [URL][] is that path names and query strings are **not uri encoded** but kept in their original form!
+
+**Important Note:** Instances are [frozen][] upon creation. This means you can't modify properties as you usually would with `URL` instances to reduce complexity.
+
+Another difference is the additional `versionedHref` property which contains the parsed version as well!
+
+```js
+const { LightURL, resolveURL } = require('hyper-dns')
+
+const input = '../démonstration.html'
+const base = await resolveURL('dat://dat-ecosystem.org+1234/base/index.html')
+
+// Getting the relative path for a dat URL
+const url = new LightURL(input, base)
+
+// To stay compatible the .href doesn't contain a version
+url.href === 'dat://dat-ecosystem.org/démonstration.html'
+
+// But the new property versionedHref contains everything
+url.versionedHref === 'dat://dat-ecosystem.org+1234/démonstration.html'
+```
+
+[URL]: https://developer.mozilla.org/en-US/docs/Web/API/URL
+[frozen]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Object/freeze
