@@ -88,7 +88,7 @@ function createCacheSqlite (opts) {
       count += 1
       return function unregister () {
         count -= 1
-        if (count === 0 && db.open) {
+        if (count === 0 && db.open && autoClose > 0) {
           timeout = setTimeout(db.close, autoClose)
         }
       }
