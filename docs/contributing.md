@@ -14,7 +14,7 @@ Contributions are always welcome, but it helps to know what thoughts went into t
 
 A CI task will run the `npm` scripts: `lint`, `coverage` and `test-browser` against your code. We can not merge requests without them passing.
 
-Currently we have 100% code coverage, which doesn't mean too much but if possible it would be great to continue that practice.
+Currently we have ~100% code coverage, which doesn't mean too much but if possible it would be great to continue that practice.
 
 [issues]: https://github.com/martinheidegger/hyper-dns/issues/new
 [discord]: https://discord.gg/fZymdRfctR
