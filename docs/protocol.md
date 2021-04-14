@@ -49,7 +49,7 @@ What is in the first parameter you ask? Good Question!
 
 ## Context API
 
-The first parameter for a `protocol` is the `context` which gives you a few handy methods to work with:
+The first parameter for a `protocol` is the `context`. The context gives you a few handy methods to work with:
 
 ```javascript
 const myKeyRegex = /^(?<key>[0-9]{6})$/
@@ -76,6 +76,9 @@ async function simple (context, name) {
   // Location to find a well-known entry
   const href = `https://${name}/.well-known/simple`
 
+  // Fetches the given well-known href and validates the key with a regex.
+  // You need to specify how many redirects it is supposed to follow,
+  // as that too is part of a protocol specification.
   result = await context.fetchWellKnown(name, href, myKeyRegex, followRedirects)
 }
 ```

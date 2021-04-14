@@ -41,13 +41,11 @@ The power of `hyper-dns` in comparison to other, protocol-specific implementatio
 - [API documentation][] _…for getting to know the API in detail._ 🧑‍💻
 - [Contribution Guide][] _…because help is always welcome._ 🥳
 - [Protocol Guide][] _…for current protocols and adding new ones._ 🤠
-- [dat-dns comparison][] _…for when you feel nostaligc._
 
 [Architecture Overview]: ./docs/architecture.md
 [API documentation]: ./docs/api.md
 [Contribution Guide]: ./docs/contributing.md
 [Protocol Guide]: ./docs/protocol.md
-[dat-dns comparison]: ./docs/dat-dns.md
 
 ## 📜 License
 

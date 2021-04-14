@@ -12,7 +12,7 @@ The _system-cache_ is used to cache the results of a `resolve` operations to low
 
 The _in-memory-cache_ is a [lru-cache][] used to cache the result of `resolve` operations only. It is  which gives it a stable runtime-performance.
 
-The _sqlite-cache_ is a overlay over the _in-memory-cache_. As the name suggest it uses [SQLite][] to store data on the hard disk. SQLite is used because it turns out that the team put significant effort into making it work for [multiple processes at a time][sqlite-mp].
+The _sqlite-cache_ is a overlay over the _in-memory-cache_. As the name suggest it uses [SQLite][] to store data on the hard disk. SQLite is used because it turns out that the team put significant effort into making it work for [multiple processes at a time][sqlite-mp]. (See more about this in the [API Documentation](./api.md#createcachesqliteopts))
 
 **Cache entries are not flushed or destroyed by default.** This ensures that even expired entries can be used if your computer is offline for a longer period of time!
 

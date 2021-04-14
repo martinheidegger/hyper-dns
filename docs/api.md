@@ -175,11 +175,44 @@ In browsers this will default to a `lru-cache` and in node to the `sqlite-cache`
 
 ### `createCacheLRU([opts])`
 
-// TODO
+> This is the default cache when using `hyper-dns` in the browser.
+
+- `opts.maxSize` (number, default=1000) Amount of entries to keep in the cache.
+
+The LRU cache uses the [quick-lru][] paging mechanism to keep entries in memory
+
+[quick-lru]: https://github.com/sindresorhus/quick-lru
+
 
 ### `createCacheSQLite([opts])`
 
-// TODO
+> This is only available in Node.js! With its default options, it is also the **default cache** of `resolve` operations in Node.js! Using this operation in the browser will cause an error!
+
+- `opts.file` (string, default=see below) file path for the cache
+- `opts.table` (string, default=names) database table to store cache entries in
+- `opts.maxSize` (number, default=1000) amount of domains to keep in memory
+- `opts.autoClose` (number, default=5000) milliseconds of inactivity before the SQLite instance is closed. Set autoClose to 0 to keep the database open.
+- `opts.maxWalSize` (number, default=10485760) max size that triggers a wal_checkpoint operation
+- `opts.walCheckInterval` (number, default 5000) interval to check the wal size
+
+The default `file` for storing data is system specific and we use the [env-paths][] library to figure out where it is stored.
+
+`envPaths('hyper-dns', { suffix: '' }).cache + '/cache.db'`
+
+↑ This is the pattern for the default path.
+
+[env-paths]: https://github.com/sindresorhus/env-paths
+
+#### Implementation details
+
+- It will start a sqlite instance on demand and will close it after the specified `.opts.autoClose` timeout.
+- It will keep once requested entries in a `lru` cache with the provided `.maxSize` to reduce `I/O`.
+- It uses the `journal_mode = WAL` which is done [for better performance][wal-performance].
+
+_Note:_ This implementation uses the [better-sqlite3][] library.
+
+[better-sqlite3]: https://github.com/JoshuaWise/better-sqlite3
+[wal-performance]: https://github.com/JoshuaWise/better-sqlite3/blob/master/docs/performance.md
 
 ## `protocols`
 
@@ -196,7 +229,16 @@ Object containing all default supported protocols. More about this in the [Proto
 const { createResolveContext } = require('hyper-dns')
 ```
 
-// TODO
+`createResolveContext` can be used to create `Context` implementations for the `opts.context` option of `resolve...()` operations. (more in the [Protocol Guide][ContextAPI])
+
+[ContextAPI]: ./protocol.md#context-api
+
+The following options form [resolveProtocol(opts)][] are used: `ttl`, `corsWarning`, `userAgent`, `dohLookups`, `localPort`. More about these options in the `resolveProtocol(opts)` documentation.
+
+- `signal` (AbortSignal, optional) - an abort signal to be used to cancel all protocol requests.
+
+
+[resolveProtocol(opts)]: #async-resolveprotocolprotocol-name-opts
 
 ## `LightURL`
 
