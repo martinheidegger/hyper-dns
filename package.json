@@ -3,7 +3,6 @@
   "version": "0.9.0",
   "description": "DNS lookup for dat/hyper archives",
   "main": "index.js",
-  "types": "index.d.ts",
   "browser": "browser.js",
   "scripts": {
     "lint": "standard",
