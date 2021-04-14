@@ -192,12 +192,9 @@ function * randomized (array) {
 }
 
 async function fetchDnsTxtRecords (dnsTxtFallback, fetch, name, opts, signal) {
-  const { noDnsOverHttps } = opts
-  if (!noDnsOverHttps) {
-    const result = await fetchDnsTxtOverHttps(fetch, name, opts, signal)
-    if (result !== undefined) {
-      return result
-    }
+  const result = await fetchDnsTxtOverHttps(fetch, name, opts, signal)
+  if (result !== undefined) {
+    return result
   }
   return await dnsTxtFallback(name)
 }
