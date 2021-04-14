@@ -7,7 +7,12 @@ const { resolveProtocol, resolve, resolveURL, RecordNotFoundError } = require('.
 const { rejects } = require('./helpers.js')
 const createCacheLRU = require('../cache-lru.js')
 
-const dummyCtx = () => ({})
+const dummyCtx = () => ({
+  isLocal: () => true,
+  matchRegex: () => {},
+  getDNSTxtRecord: () => {},
+  fetchWellKnown: () => {}
+})
 
 function tRange (t, from, entry, to) {
   t.ok(from <= entry && entry < to, `${from} <= ${entry} < ${to}`)
@@ -489,8 +494,56 @@ test('resolving common urls blob/http/https/ftp/file url', async t => {
   t.equals((await resolveURL(dummyCtx, 'blob:someblob')).href, 'blob:someblob')
 })
 
+function compareURL (t, url, expected) {
+  t.deepEquals(
+    Object.keys(url).sort(),
+    Object.keys(expected).sort()
+  )
+  for (const [key, value] of Object.entries(expected)) {
+    t.equals(url[key], value, `expected.${key} = ${value} to match.`)
+  }
+}
+
+test('resolving minimal url properties', async t => {
+  const url = await resolveURL(dummyCtx, 'test:abcd')
+  compareURL(t, url, {
+    protocol: 'test:',
+    host: 'abcd',
+    hostname: 'abcd',
+    pathname: null,
+    search: null,
+    hash: null,
+    username: null,
+    password: null,
+    port: null,
+    version: null,
+    slashes: null,
+    href: 'test:abcd'
+  })
+})
+
+test.only('resolving maximal url', async t => {
+  const url = await resolveURL(dummyCtx, 'foo://usr:pwd@sub.test.com+12ab:12351/hello/world?some=query#some-hash')
+  compareURL(t, url, {
+    protocol: 'foo:',
+    host: 'sub.test.com:12351',
+    hostname: 'sub.test.com',
+    pathname: '/hello/world',
+    search: '?some=query',
+    hash: '#some-hash',
+    username: 'usr',
+    password: 'pwd',
+    port: '12351',
+    version: '12ab',
+    slashes: '//',
+    href: 'foo://usr:pwd@sub.test.com+12ab:12351/hello/world?some=query#some-hash'
+  })
+})
+
 test('supporting non-standard version in common urls', async t => {
-  t.equals((await resolveURL(dummyCtx, 'ftp://me:you@datproject.com+12341')).href, 'ftp://me:you@datproject.com+12341/')
+  const url = await resolveURL(dummyCtx, 'ftp://me:you@datproject.com+12341a-^')
+  t.equals(url.href, 'ftp://me:you@datproject.com+12341a-^/')
+  t.equals(url.version, '12341a-^')
 })
 
 test('using fallback protocol if non specified and not resolvable', async t => {

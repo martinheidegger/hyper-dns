@@ -7,7 +7,6 @@ const createResolveContext = require('./resolve-context.js')
 const { matchRegex, isLocal } = createResolveContext
 const debug = require('debug')('hyper-dns')
 
-const VERSION_REGEX = /\+([^/]+)$/g
 const CORS_WARNING = (name, url) => `Warning, the well-known lookup for "${name}" at ${url} does not serve with the http-header access-control-allow-origin=*. This means that while this domain works in the current environment it is not universally accessible and does not conform to the standard. Please contact the host and ask them to add the http-header, thanks!`
 
 class RecordNotFoundError extends Error {
@@ -28,27 +27,27 @@ const pathnameRequired = ['https', 'http', 'ftp']
  * LightURL is a simplified version of URL that behaves same and works with versions.
  */
 class LightURL {
-  constructor (url, version) {
-    this.protocol = `${url.protocol}:`
-    this.host = url.hostname ? (url.port ? `${url.hostname}:${url.port}` : url.hostname) : ''
-    this.hostname = url.hostname || ''
-    let pathname = url.pathname || ''
-    if (pathnameRequired.includes(url.protocol) && pathname === '') {
+  constructor (url) {
+    this.protocol = url.protocol ? `${url.protocol}:` : null
+    this.host = url.hostname ? (url.port ? `${url.hostname}:${url.port}` : url.hostname) : null
+    this.hostname = url.hostname || null
+    let pathname = url.pathname || null
+    if (pathname === null && pathnameRequired.includes(url.protocol)) {
       pathname = '/'
     }
     this.pathname = pathname
-    this.search = url.search ? `?${url.search}` : ''
-    this.hash = url.hash ? `#${url.hash}` : ''
-    this.username = url.username || ''
-    this.password = url.password || ''
-    this.port = url.port || ''
-    this.version = version
-    const slashes = slashesRequired.includes(url.protocol) ? '//' : url.slashes
+    this.search = url.search ? `?${url.search}` : null
+    this.hash = url.hash ? `#${url.hash}` : null
+    this.username = url.username || null
+    this.password = url.password || null
+    this.port = url.port || null
+    this.version = url.version || null
+    this.slashes = url.slashes || null
+    const slashes = slashesRequired.includes(url.protocol) ? '//' : url.slashes || ''
     const auth = this.username ? `${this.username}${this.password ? `:${this.password}` : ''}@` : ''
     const versionStr = this.version ? `+${this.version}` : ''
-    const port = this.port ? `:${this.port}` : this.port
-    this.href = `${this.protocol}${slashes || ''}${auth}${this.hostname}${versionStr}${port}${this.pathname}${this.search}${this.hash}`
-    this.version = version
+    const port = this.port ? `:${this.port}` : ''
+    this.href = `${this.protocol || ''}${slashes || ''}${auth}${this.hostname || ''}${versionStr}${port}${this.pathname || ''}${this.search || ''}${this.hash || ''}`
     Object.freeze(this)
   }
 
@@ -183,8 +182,11 @@ async function resolve (createLookupContext, name, opts = {}) {
 resolve.DEFAULTS = resolveProtocol.DEFAULTS
 Object.freeze(resolve)
 
+// Extended from https://tools.ietf.org/html/rfc3986#appendix-B
+const urlRegex = /^(?:(?<protocol>[^:/?#]+):)?(?:(?<slashes>\/\/)?(?:(?<username>[^@:]*)(?::(?<password>[^@]*))?@)?(?:(?<hostname>[^/?#:+]*)(?:\+(?<version>[^/?#:]*))?(?::(?<port>[0-9]+))?)?)?(?<pathname>[^?#]*)(?:\?(?<search>[^#]*))?(?:#(?<hash>.*))?$/
+
 async function resolveURL (createLookupContext, input, opts) {
-  const url = parseURL(input)
+  const url = urlRegex.exec(input).groups
   if (!url.hostname) {
     throw new TypeError('URL needs to specify a hostname, just a path can not resolve to anything.')
   }
@@ -194,12 +196,7 @@ async function resolveURL (createLookupContext, input, opts) {
     ...opts
   }
   return await wrapContext(async (context, signal) => {
-    let version = ''
     if (!url.protocol || supportsProtocol(opts.protocols, url.protocol)) {
-      url.hostname = url.hostname.replace(VERSION_REGEX, (_match, input) => {
-        version = input
-        return ''
-      })
       const childOpts = {
         ...opts,
         context,
@@ -226,13 +223,8 @@ async function resolveURL (createLookupContext, input, opts) {
           url.protocol = opts.fallbackProtocol
         }
       }
-    } else {
-      url.hostname = url.hostname.replace(VERSION_REGEX, (_match, input) => {
-        version = input
-        return ''
-      })
     }
-    return new LightURL(url, version)
+    return new LightURL(url)
   }, createLookupContext, opts)
 }
 resolveURL.DEFAULTS = Object.freeze({
@@ -306,12 +298,6 @@ function getProtocol (opts, input) {
   }
   /* c8 ignore end */
   return protocol
-}
-
-function parseURL (input) {
-  // Extended from https://tools.ietf.org/html/rfc3986#appendix-B
-  const parts = /^(?:(?<protocol>[^:/?#]+):)?(?:(?<slashes>\/\/)?(?:(?<username>[^@:]*)(?::(?<password>[^@]*))?@)?(?:(?<hostname>[^/?#:]*)(?::(?<port>[0-9]+))?)?)?(?<pathname>[^?#]*)(?:\?(?<search>[^#]*))?(?:#(?<hash>.*))?$/.exec(input)
-  return parts.groups
 }
 
 const sanitizingContext = Object.freeze({
