@@ -4,7 +4,7 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
 const { AbortError } = require('@consento/promise/AbortError')
 const { test } = require('tape')
 const { resolveProtocol, resolve, resolveURL, RecordNotFoundError, LightURL } = require('../resolve.js')
-const { rejects } = require('./helpers.js')
+const { rejects, tRange } = require('./helpers.js')
 const createCacheLRU = require('../cache-lru.js')
 
 const dummyCtx = () => ({
@@ -13,10 +13,6 @@ const dummyCtx = () => ({
   getDNSTxtRecord: () => {},
   fetchWellKnown: () => {}
 })
-
-function tRange (t, from, entry, to) {
-  t.ok(from <= entry && entry < to, `${from} <= ${entry} < ${to}`)
-}
 
 test('basic resolving', async t => {
   const testContext = {}

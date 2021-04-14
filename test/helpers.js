@@ -37,7 +37,12 @@ async function rejects (t, p, err) {
   }
 }
 
+function tRange (t, from, entry, to) {
+  t.ok(from <= entry && entry < to, `${from} <= ${entry} < ${to}`)
+}
+
 module.exports = {
   fetchResponse,
-  rejects
+  rejects,
+  tRange
 }

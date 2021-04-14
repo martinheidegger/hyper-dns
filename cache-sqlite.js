@@ -5,8 +5,8 @@ const envPaths = require('env-paths')
 const debug = require('debug')('hyper-dns')
 const createCacheLRU = require('./cache-lru.js')
 
-const Q_CREATE_TABLE = 'CREATE TABLE IF NOT EXISTS $table (name TEXT NOT NULL, protocol TEXT NOT NULL, expires INTEGER NOT NULL, key TEXT, PRIMARY KEY (name, protocol))'
-const Q_WRITE = 'REPLACE INTO $table (name, protocol, key, expires) VALUES ($name, $protocol, $key, $expires)'
+const Q_CREATE_TABLE = 'CREATE TABLE IF NOT EXISTS $table (name TEXT NOT NULL, protocol TEXT NOT NULL, updated INTEGER NOT NULL, key TEXT, expires INTEGER NOT NULL, PRIMARY KEY (name, protocol))'
+const Q_WRITE = 'REPLACE INTO $table (name, protocol, updated, key, expires) VALUES ($name, $protocol, $updated, $key, $expires)'
 const Q_CLEAR_NAME = 'DELETE FROM $table WHERE name = $name'
 const Q_CLEAR = 'DELETE FROM $table'
 const Q_READ = 'SELECT key, expires from $table WHERE name = $name AND protocol = $protocol'
@@ -35,9 +35,10 @@ function createCacheSqlite (opts) {
         db = null
       }
     },
-    async flush () {
-      await lru.flush()
-      run(Q_FLUSH, { now: Date.now() })
+    async flush (timestamp) {
+      timestamp = typeof timestamp === 'number' ? timestamp : Date.now()
+      await lru.flush(timestamp)
+      run(Q_FLUSH, { now: timestamp })
     },
     async get (protocol, name) {
       let entry = await lru.get(protocol, name)
@@ -58,7 +59,7 @@ function createCacheSqlite (opts) {
       await lru.set(protocol, name, entry)
       const { key, expires } = entry
       try {
-        run(Q_WRITE, { protocol, name, expires, key })
+        run(Q_WRITE, { protocol, name, expires, key, updated: Date.now() })
       } catch (error) {
         debug('error while storing %s:%s in sqlite cache: %s', protocol, name, error)
       }
