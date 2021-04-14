@@ -1,9 +1,8 @@
 # hyper-dns
 
 Advanced resolving of decentralized web links using different name systems such as DNS Txt entries and `.well-known` https lookups locations.
-It implements various naming systems such as [dat][], [hyper][] and [cabal][] but is extensible to support other systems as well.
+It implements various naming systems such as [dat][] or [cabal][] but is extensible to support other systems as well.
 
-[hyper]: https://hypercore-protocol.org/
 [dat]: https://www.datprotocol.com/deps/0005-dns/
 [cabal]: https://cabal.chat/
 

@@ -20,7 +20,6 @@ test(`Successful test against ${ecosystem}`, async t => {
     results,
     {
       dat: key,
-      hyper: null,
       cabal: null
     }
   )
