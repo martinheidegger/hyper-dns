@@ -120,6 +120,14 @@ const { cabal } = require('hyper-dns').protocols
 
 The [cabal chat](https://cabal.chat/) protocol works the same way as `dat` does but has a different lookups for DNS entries (cabalkey=) and uses the `/.well-known/cabal` lookup.
 
+### ara
+
+```javascript
+const { ara } = require('hyper-dns').protocols
+```
+
+The ara did lookup protocol is implemented to match the implementation found in https://github.com/AraBlocks/ara-identity-dns.
+
 ### hyper
 
 ```javascript
