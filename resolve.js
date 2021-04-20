@@ -27,12 +27,9 @@ function isEntryActive (protocol, name, entry, ignoreCachedMiss) {
     debug('Cached entry for %s:%s has expired: %s < %s', protocol.name, name, entry.expires, now)
     return false
   }
-  if (entry.key === null) {
-    if (ignoreCachedMiss) {
-      debug('Ignoring cached miss for %s:%s because of user option.', protocol.name, name)
-      return false
-    }
-    return true
+  if (entry.key === null && ignoreCachedMiss) {
+    debug('Ignoring cached miss for %s:%s because of user option.', protocol.name, name)
+    return false
   }
   return true
 }
@@ -52,7 +49,7 @@ function sanitizeTTL (ttl, minTTL, maxTTL) {
   return ttl
 }
 
-async function storeCacheEntry (protocol, name, opts, entry) {
+async function storeCacheEntry (opts, protocol, name, entry) {
   const { cache, maxTTL } = opts
   if (!cache || entry.expires === null) {
     return
@@ -72,25 +69,26 @@ async function storeCacheEntry (protocol, name, opts, entry) {
   }
 }
 
-async function fallbackToCache (protocol, name, ignoreCache, cache, entry, error) {
+async function fallbackToCache (opts, protocol, name, cachedEntry, error) {
+  const { ignoreCache, cache } = opts
   if (ignoreCache && cache) {
     debug('Falling back to cache, as error occured while looking up %s:%s: %s', protocol.name, name, error)
-    entry = await getCacheEntry(cache, protocol, name, entry)
-    return entry ? entry.key : null
+    cachedEntry = await getCacheEntry(opts, protocol, name)
+    return cachedEntry ? cachedEntry.key : null
   }
-  if (entry !== undefined) {
-    debug('Using cached entry(expires=%s) because looking up %s:%s failed: %s', entry.expires, protocol.name, name, error)
-    return entry.key
+  if (cachedEntry !== undefined) {
+    debug('Using cached entry(expires=%s) because looking up %s:%s failed: %s', cachedEntry.expires, protocol.name, name, error)
+    return cachedEntry.key
   }
   debug('Error while looking up %s:%s: %s', protocol.name, name, error)
   return null
 }
 
-async function resolveRaw (context, signal, opts, protocol, name) {
-  const { minTTL, maxTTL } = opts
+async function resolveRaw (opts, protocol, name) {
+  const { minTTL, maxTTL, signal } = opts
   let { ttl } = opts
   let key = null
-  const result = await protocol(context, name)
+  const result = await protocol(opts.context, name)
   bubbleAbort(signal)
   if (result !== undefined) {
     key = result.key
@@ -114,24 +112,25 @@ async function resolveProtocol (createLookupContext, protocol, name, opts = {}) 
     ...opts
   }
   protocol = getProtocol(opts, protocol)
-  return wrapContext(async (context, signal) => {
-    let entry
+  return wrapContext(async opts => {
+    let cachedEntry
     const { cache, ignoreCache, ignoreCachedMiss } = opts
     if (!ignoreCache && cache) {
-      entry = await getCacheEntry(cache, protocol, name, entry)
-      if (isEntryActive(protocol, name, entry, ignoreCachedMiss)) {
-        return entry.key
+      cachedEntry = await getCacheEntry(opts, protocol, name)
+      if (isEntryActive(protocol, name, cachedEntry, ignoreCachedMiss)) {
+        return cachedEntry.key
       }
     }
+    let entry
     try {
-      entry = await resolveRaw(context, signal, opts, protocol, name)
+      entry = await resolveRaw(opts, protocol, name)
     } catch (error) {
       if (error instanceof AbortError || error instanceof TypeError) {
         throw error
       }
-      return await fallbackToCache(protocol, name, ignoreCache, cache, entry, error)
+      return await fallbackToCache(opts, protocol, name, cachedEntry, error)
     }
-    await storeCacheEntry(protocol, name, opts, entry)
+    await storeCacheEntry(opts, protocol, name, entry)
     return entry.key
   }, createLookupContext, opts)
 }
@@ -157,17 +156,12 @@ async function resolve (createLookupContext, name, opts = {}) {
     ...resolve.DEFAULTS,
     ...opts
   }
-  return await wrapContext(async (context, signal) => {
+  return await wrapContext(async opts => {
     const { protocols } = opts
     const keys = {}
-    const childOpts = {
-      ...opts,
-      context,
-      signal
-    }
     await Promise.all(protocols.map(async protocol => {
       protocol = getProtocol(opts, protocol)
-      keys[protocol.name] = await resolveProtocol(createLookupContext, protocol, name, childOpts)
+      keys[protocol.name] = await resolveProtocol(createLookupContext, protocol, name, opts)
     }))
     return keys
   }, createLookupContext, opts)
@@ -185,16 +179,11 @@ async function resolveURL (createLookupContext, input, opts) {
     localPort: url.port,
     ...opts
   }
-  return await wrapContext(async (context, signal) => {
+  return await wrapContext(async opts => {
     const p = url.protocol ? url.protocol.substr(0, url.protocol.length - 1) : null
     if (!p || supportsProtocol(opts.protocols, p)) {
-      const childOpts = {
-        ...opts,
-        context,
-        signal
-      }
       if (p) {
-        const key = await resolveProtocol(createLookupContext, p, url.hostname, childOpts)
+        const key = await resolveProtocol(createLookupContext, p, url.hostname, opts)
         if (key !== null) {
           url.hostname = key
         } else {
@@ -202,7 +191,7 @@ async function resolveURL (createLookupContext, input, opts) {
         }
       } else {
         for (const protocol of getProtocols(opts)) {
-          const key = await resolveProtocol(createLookupContext, protocol, url.hostname, childOpts)
+          const key = await resolveProtocol(createLookupContext, protocol, url.hostname, opts)
           if (key !== null) {
             url.protocol = `${protocol.name}:`
             url.hostname = key
@@ -246,11 +235,14 @@ function supportsProtocol (protocols, protocolName) {
 }
 
 async function wrapContext (handler, createLookupContext, opts) {
-  if (opts.context) {
-    return await handler(opts.context, opts.signal)
-  }
-  return wrapTimeout(async signal => {
-    return await handler(createLookupContext(opts, signal), signal)
+  return await wrapTimeout(async signal => {
+    if (signal) {
+      opts.signal = signal
+    }
+    if (!opts.context) {
+      opts.context = createLookupContext(opts)
+    }
+    return await handler(opts)
   }, opts)
 }
 
@@ -298,7 +290,8 @@ const sanitizingContext = Object.freeze({
   async fetchWellKnown () {}
 })
 
-async function getCacheEntry (cache, protocol, name, signal) {
+async function getCacheEntry (opts, protocol, name) {
+  const { cache, signal } = opts
   let entry
   try {
     entry = await cache.get(protocol.name, name, signal)

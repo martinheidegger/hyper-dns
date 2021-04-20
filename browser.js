@@ -5,8 +5,8 @@ async function resolveTxtFallback (_domain) {
   throw new Error('Non of the specified dns-over-https providers returned a valid result.')
 }
 
-function createResolveContext (opts, signal) {
-  return base.createResolveContext(fetch, resolveTxtFallback, opts, signal)
+function createResolveContext (opts) {
+  return base.createResolveContext(fetch, resolveTxtFallback, opts)
 }
 const cache = base.createCacheLRU()
 

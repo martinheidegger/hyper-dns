@@ -34,7 +34,7 @@ function matchRegex (name, regex) {
   }
 }
 
-function createResolveContext (fetch, dnsTxtFallback, opts, signal) {
+function createResolveContext (fetch, dnsTxtFallback, opts) {
   const dnsTxtLookups = {}
   const { localPort } = opts
 
@@ -50,7 +50,7 @@ function createResolveContext (fetch, dnsTxtFallback, opts, signal) {
       }
       let lookup = dnsTxtLookups[name]
       if (lookup === undefined) {
-        lookup = fetchDnsTxtRecords(dnsTxtFallback, fetch, name, opts, signal)
+        lookup = fetchDnsTxtRecords(dnsTxtFallback, fetch, name, opts)
         dnsTxtLookups[name] = lookup
       }
       const answers = (await lookup).filter(a => {
@@ -96,8 +96,8 @@ function createResolveContext (fetch, dnsTxtFallback, opts, signal) {
     },
     async fetchWellKnown (name, schema, keyRegex, followRedirects) {
       const href = `https://${name}${isLocal(name) && localPort ? `:${localPort}` : ''}/.well-known/${schema}`
-      const res = await fetchWellKnownRecord(fetch, name, href, followRedirects, opts, signal)
-      bubbleAbort(signal)
+      const res = await fetchWellKnownRecord(fetch, name, href, followRedirects, opts)
+      bubbleAbort(opts.signal)
       if (res === undefined) {
         return
       }
@@ -129,23 +129,24 @@ createResolveContext.matchRegex = matchRegex
 
 module.exports = Object.freeze(createResolveContext)
 
-async function fetchWellKnownRecord (fetch, name, href, followRedirects, opts, signal) {
+async function fetchWellKnownRecord (fetch, name, href, followRedirects, opts) {
   const { userAgent, corsWarning } = opts
   let redirectCount = 0
+  const headers = {
+    Accept: 'text/plain'
+  }
+  if (userAgent) {
+    headers['User-Agent'] = userAgent
+  }
+  const fetchOpts = { headers, signal: opts.signal, redirect: 'manual' }
   while (true) {
-    bubbleAbort(signal)
+    bubbleAbort(opts.signal)
     if (redirectCount === 0) {
       debug('well-known lookup at %s', href)
     }
-    const headers = {
-      Accept: 'text/plain'
-    }
-    if (userAgent) {
-      headers['User-Agent'] = userAgent
-    }
     let res
     try {
-      res = await fetch(href, { headers, signal, redirect: 'manual' })
+      res = await fetch(href, fetchOpts)
     } catch (error) {
       debug('well-known lookup: error while fetching %s: %s', href, error)
       return
@@ -191,15 +192,15 @@ function * randomized (array) {
   }
 }
 
-async function fetchDnsTxtRecords (dnsTxtFallback, fetch, name, opts, signal) {
-  const result = await fetchDnsTxtOverHttps(fetch, name, opts, signal)
+async function fetchDnsTxtRecords (dnsTxtFallback, fetch, name, opts) {
+  const result = await fetchDnsTxtOverHttps(fetch, name, opts)
   if (result !== undefined) {
     return result
   }
   return await dnsTxtFallback(name)
 }
 
-async function fetchDnsTxtOverHttps (fetch, name, opts, signal) {
+async function fetchDnsTxtOverHttps (fetch, name, opts) {
   const { dohLookups, userAgent } = opts
   if (!name.endsWith('.')) {
     name = `${name}.`
@@ -211,6 +212,7 @@ async function fetchDnsTxtOverHttps (fetch, name, opts, signal) {
   if (userAgent) {
     headers['User-Agent'] = userAgent
   }
+  const fetchOpts = { headers, signal: opts.signal }
   const query = stringify({
     name,
     type: 'TXT'
@@ -219,10 +221,7 @@ async function fetchDnsTxtOverHttps (fetch, name, opts, signal) {
     const path = `${dohLookup}?${query}`
     let res
     try {
-      res = await fetch(path, {
-        headers,
-        signal
-      })
+      res = await fetch(path, fetchOpts)
     } catch (error) {
       debug('doh: Error while looking up %s: %s', path, error)
       continue // Try next doh provider
@@ -233,7 +232,7 @@ async function fetchDnsTxtOverHttps (fetch, name, opts, signal) {
       debug('doh: Http status error[code=%s] while looking up %s: %s', res.status, path, text)
       continue // Try next doh provider
     }
-    bubbleAbort(signal)
+    bubbleAbort(opts.signal)
     const body = await res.text()
     debug('doh: lookup for name: %s at %s resulted in %s', name, path, res.status, body)
     let record
@@ -243,7 +242,7 @@ async function fetchDnsTxtOverHttps (fetch, name, opts, signal) {
       debug('doh: Invalid record, must provide valid json:\n%s', error)
       continue // Try next doh provider
     }
-    bubbleAbort(signal)
+    bubbleAbort(opts.signal)
     if (typeof record !== 'object') {
       debug('doh: Invalid record, root needs to be an object')
       continue // Try next doh provider

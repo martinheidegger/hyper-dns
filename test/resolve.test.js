@@ -19,12 +19,11 @@ test('basic resolving', async t => {
   const testName = 'Foo'
   const key = 'Bar'
   const cache = createCacheLRU()
-  const createContext = (opts, signal) => {
+  const createContext = (opts) => {
     t.deepEquals(opts, {
       ...resolveProtocol.DEFAULTS,
       cache
     })
-    t.equals(signal, undefined)
     return testContext
   }
   const start = Date.now()
@@ -403,8 +402,8 @@ test('Signal is passed through to context', async t => {
   const testSignal = {}
   t.plan(1)
   await resolveProtocol(
-    (_opts, signal) => {
-      t.equals(signal, testSignal)
+    (opts) => {
+      t.equals(opts.signal, testSignal)
       return {}
     },
     function testProtocol () {},
@@ -418,9 +417,9 @@ test('Signal is passed through to context', async t => {
 test('timeout causes signal', async t => {
   t.plan(2)
   await resolveProtocol(
-    (_opts, signal) => {
-      t.notEquals(signal, undefined)
-      t.notEquals(signal, null)
+    opts => {
+      t.notEquals(opts.signal, undefined)
+      t.notEquals(opts.signal, null)
       return {}
     },
     function testProtocol () {},

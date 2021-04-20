@@ -35,8 +35,8 @@ async function resolveTxtFallback (domain) {
   return (await resolveTxt(domain)).map(data => ({ data: data[0] }))
 }
 
-function createResolveContext (opts, signal) {
-  return base.createResolveContext(fetch, resolveTxtFallback, opts, signal)
+function createResolveContext (opts) {
+  return base.createResolveContext(fetch, resolveTxtFallback, opts)
 }
 const cache = createCacheSqlite()
 

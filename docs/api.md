@@ -223,7 +223,7 @@ protocols.dat // certainly supported protocol
 
 Object containing all default supported protocols. More about this in the [Protocol Guide](./protocol.md#supported-protocols).
 
-## `createResolveContext(opts, signal)`
+## `createResolveContext(opts)`
 
 ```javascript
 const { createResolveContext } = require('hyper-dns')
