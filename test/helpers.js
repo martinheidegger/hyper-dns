@@ -41,8 +41,19 @@ function tRange (t, from, entry, to) {
   t.ok(from <= entry && entry < to, `${from} <= ${entry} < ${to}`)
 }
 
+function compareURL (t, url, expected) {
+  t.deepEquals(
+    Object.keys(url).sort(),
+    Object.keys(expected).sort()
+  )
+  for (const [key, value] of Object.entries(expected)) {
+    t.equals(url[key], value, `expected.${key} = ${value} to match.`)
+  }
+}
+
 module.exports = {
   fetchResponse,
   rejects,
-  tRange
+  tRange,
+  compareURL
 }

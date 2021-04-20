@@ -1,5 +1,6 @@
 
 require('./cache-lru.test.js')
+require('./light-url.test.js')
 require('./protocols.test.js')
 require('./resolve-context.test.js')
 require('./resolve.test.js')

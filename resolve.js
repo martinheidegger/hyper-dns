@@ -4,6 +4,7 @@ const { bubbleAbort } = require('@consento/promise/bubbleAbort')
 const protocols = require('./protocols.js')
 const createCacheLRU = require('./cache-lru.js')
 const createResolveContext = require('./resolve-context.js')
+const { LightURL, urlRegex } = require('./light-url.js')
 const { matchRegex, isLocal } = createResolveContext
 const debug = require('debug')('hyper-dns')
 
@@ -17,120 +18,38 @@ class RecordNotFoundError extends Error {
 }
 RecordNotFoundError.prototype.code = 'ENOTFOUND'
 
-// some protocols have always slashes
-const slashesRequired = ['file:', 'https:', 'http:', 'ftp:']
-// some protocols require to have the pathname be set to at least /
-const pathnameRequired = ['https:', 'http:', 'ftp:']
-
-// Extended from https://tools.ietf.org/html/rfc3986#appendix-B
-const urlRegex = /^(?<protocol>[^:/?#]+:)?(?:(?<slashes>\/\/)?(?:(?<username>[^@:]*)(?::(?<password>[^@]*))?@)?(?:(?<hostname>[^/?#:+]*)(?:\+(?<version>[^/?#:]*))?(?::(?<port>[0-9]+))?)?)?(?<pathname>[^?#]+)?(?<search>[^#]+)?(?<hash>.+)?$/
-
-function parseURL (input) {
-  const url = urlRegex.exec(input).groups
-  if (url.hostname === '.' || url.hostname === '..') {
-    url.pathname = `${url.hostname}${url.pathname}`
-    url.hostname = undefined
+function isEntryActive (protocol, name, entry, ignoreCachedMiss) {
+  if (entry === undefined) {
+    return false
   }
-  return url
-}
-
-function resolveRelative (url, base) {
-  const basePath = `${base.pathname || ''}`
-  return {
-    ...url,
-    ...base,
-    pathname: `${basePath}${basePath.endsWith('/') ? '' : '/../'}${url.pathname}`,
-    search: url.search,
-    hash: url.hash
+  const now = Date.now()
+  if (entry.expires < now) {
+    debug('Cached entry for %s:%s has expired: %s < %s', protocol.name, name, entry.expires, now)
+    return false
   }
-}
-
-function sanitizeBase (base) {
-  if (typeof base === 'string') {
-    return new LightURL(base)
-  }
-  return base || null
-}
-
-function sanitizeURLInput (input, base) {
-  const url = typeof input === 'string' ? parseURL(input) : input
-  if (url.protocol !== undefined) {
-    return url
-  }
-  base = sanitizeBase(base)
-  if (base === null) {
-    throw new TypeError(`Invalid URL: ${String(input)}`)
-  }
-  return resolveRelative(url, base)
-}
-
-function compileURLProperties (url) {
-  const slashes = slashesRequired.includes(url.protocol) ? '//' : url.slashes || ''
-  const auth = url.username ? `${url.username}${url.password ? `:${url.password}` : ''}@` : ''
-  const versionStr = url.version ? `+${url.version}` : ''
-  const port = url.port ? `:${url.port}` : ''
-  const prefix = `${url.protocol || ''}${slashes || ''}${auth}${url.hostname || ''}`
-  const postfix = `${port}${url.pathname || ''}${url.search || ''}${url.hash || ''}`
-  return {
-    host: url.hostname ? (url.port ? `${url.hostname}:${url.port}` : url.hostname) : null,
-    href: `${prefix}${postfix}`,
-    versionedHref: `${prefix}${versionStr}${postfix}`
-  }
-}
-
-function sanitizePathname (url) {
-  let { protocol, pathname } = url
-  if (pathname) {
-    // Processing ../ and ./ path entries
-    const path = []
-    const parts = pathname.split('/')
-    for (const entry of parts) {
-      if (entry === '.') {
-        continue
-      }
-      if (entry === '..') {
-        path.pop()
-        continue
-      }
-      path.push(entry)
+  if (entry.key === null) {
+    if (ignoreCachedMiss) {
+      debug('Ignoring cached miss for %s:%s because of user option.', protocol.name, name)
+      return false
     }
-    pathname = path.join('/')
-    return pathname.startsWith('/') ? pathname : `/${pathname}`
+    return true
   }
-  if (pathnameRequired.includes(protocol)) {
-    return '/'
-  }
-  return null
+  return true
 }
 
-/**
- * The URL class of node and browsers behave inconsistently
- * LightURL is a simplified version of URL that behaves same and works with versions.
- */
-class LightURL {
-  constructor (input, base) {
-    const url = sanitizeURLInput(input, base)
-    this.protocol = url.protocol || null
-    this.hostname = url.hostname || null
-    this.pathname = sanitizePathname(url)
-    this.search = url.search || null
-    this.hash = url.hash || null
-    this.username = url.username || null
-    this.password = url.password || null
-    this.port = url.port || null
-    this.version = url.version || null
-    this.slashes = url.slashes || null
-    Object.assign(this, compileURLProperties(this))
-    Object.freeze(this)
+function sanitizeTTL (ttl, minTTL, maxTTL) {
+  if (ttl === null || ttl === undefined) {
+    return
   }
-
-  toString () {
-    return this.href
+  if (ttl < minTTL) {
+    debug('ttl=%s is less than minTTL=%s, using minTTL', ttl, minTTL)
+    return minTTL
   }
-
-  toJSON () {
-    return this.href
+  if (ttl > maxTTL) {
+    debug('ttl=%s is more than maxTTL=%s, using maxTTL', ttl, maxTTL)
+    return maxTTL
   }
+  return ttl
 }
 
 async function resolveProtocol (createLookupContext, protocol, name, opts = {}) {
@@ -145,19 +64,8 @@ async function resolveProtocol (createLookupContext, protocol, name, opts = {}) 
     const { cache, ignoreCache, ignoreCachedMiss, minTTL, maxTTL } = opts
     if (!ignoreCache && cache) {
       entry = await getCacheEntry(cache, protocol, name, entry)
-      if (entry !== undefined) {
-        const now = Date.now()
-        if (entry.expires < now) {
-          debug('Cached entry for %s:%s has expired: %s < %s', protocol.name, name, entry.expires, now)
-        } else if (entry.key === null) {
-          if (!ignoreCachedMiss) {
-            return null
-          } else {
-            debug('Ignoring cached miss for %s:%s because of user option.', protocol.name, name)
-          }
-        } else {
-          return entry.key
-        }
+      if (isEntryActive(protocol, name, entry, ignoreCachedMiss)) {
+        return entry.key
       }
     }
     let { ttl } = opts
@@ -170,15 +78,7 @@ async function resolveProtocol (createLookupContext, protocol, name, opts = {}) 
         ttl = result.ttl
       }
       isCachedEntry = false
-      if (ttl !== null) {
-        if (ttl < minTTL) {
-          debug('ttl=%s is less than minTTL=%s, using minTTL', ttl, minTTL)
-          ttl = minTTL
-        } else if (ttl > maxTTL) {
-          debug('ttl=%s is more than maxTTL=%s, using maxTTL', ttl, maxTTL)
-          ttl = maxTTL
-        }
-      }
+      ttl = sanitizeTTL(ttl, minTTL, maxTTL)
       if (key === null) {
         debug('Lookup of %s:%s[ttl=%s] returned "null", marking it as a miss.', protocol.name, name, ttl)
       } else {
@@ -186,7 +86,7 @@ async function resolveProtocol (createLookupContext, protocol, name, opts = {}) 
       }
       entry = {
         key,
-        expires: ttl === null || ttl === undefined ? null : Date.now() + ttl * 1000
+        expires: ttl === undefined ? null : Date.now() + ttl * 1000
       }
     } catch (error) {
       if (error instanceof AbortError || error instanceof TypeError) {
