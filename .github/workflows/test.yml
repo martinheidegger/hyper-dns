@@ -16,7 +16,14 @@ jobs:
           node-version: ${{ matrix.node }}
       - run: npm install
       - run: npm run lint
+      - uses: paambaati/codeclimate-action@v2.7.5
+        if: ${{ matrix.node == '14' }}
+        env:
+          CC_TEST_REPORTER_ID: ${{ secrets.CC_TEST_REPORTER_ID }}
+        with:
+          coverageCommand: npm run coverage
       - run: npm run coverage
+        if: ${{ matrix.node != '14' }}
       - uses: GabrielBB/xvfb-action@v1.0
         with:
           run: npm run test-browser 

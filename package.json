@@ -9,7 +9,7 @@
     "test": "cross-env NODE_NO_WARNINGS=1 tape test/index.js",
     "test-browser": "browserify test/browser.js | npx tape-run",
     "bundle-size": "browserify lookup-cached.js | wc -c",
-    "coverage": "c8 npm test"
+    "coverage": "c8 -r lcov -r html npm test"
   },
   "repository": {
     "type": "git",
