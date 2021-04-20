@@ -52,6 +52,62 @@ function sanitizeTTL (ttl, minTTL, maxTTL) {
   return ttl
 }
 
+async function storeCacheEntry (protocol, name, opts, entry) {
+  const { cache, maxTTL } = opts
+  if (!cache || entry.expires === null) {
+    return
+  }
+  const now = Date.now()
+  if (now >= entry.expires) {
+    return
+  }
+  const maxExpires = now + maxTTL * 1000
+  if (entry.expires > maxExpires) {
+    return
+  }
+  try {
+    await cache.set(protocol.name, name, entry)
+  } catch (error) {
+    debug('Error while storing protocol %s and name %s in cache: %s', protocol.name, name, error)
+  }
+}
+
+async function fallbackToCache (protocol, name, ignoreCache, cache, entry, error) {
+  if (ignoreCache && cache) {
+    debug('Falling back to cache, as error occured while looking up %s:%s: %s', protocol.name, name, error)
+    entry = await getCacheEntry(cache, protocol, name, entry)
+    return entry ? entry.key : null
+  }
+  if (entry !== undefined) {
+    debug('Using cached entry(expires=%s) because looking up %s:%s failed: %s', entry.expires, protocol.name, name, error)
+    return entry.key
+  }
+  debug('Error while looking up %s:%s: %s', protocol.name, name, error)
+  return null
+}
+
+async function resolveRaw (context, signal, opts, protocol, name) {
+  const { minTTL, maxTTL } = opts
+  let { ttl } = opts
+  let key = null
+  const result = await protocol(context, name)
+  bubbleAbort(signal)
+  if (result !== undefined) {
+    key = result.key
+    ttl = result.ttl
+  }
+  ttl = sanitizeTTL(ttl, minTTL, maxTTL)
+  if (key === null) {
+    debug('Lookup of %s:%s[ttl=%s] returned "null", marking it as a miss.', protocol.name, name, ttl)
+  } else {
+    debug('Successful lookup of %s:%s[ttl=%s]: %s', protocol.name, name, ttl, result.key)
+  }
+  return {
+    key,
+    expires: ttl === undefined ? null : Date.now() + ttl * 1000
+  }
+}
+
 async function resolveProtocol (createLookupContext, protocol, name, opts = {}) {
   opts = {
     ...resolveProtocol.DEFAULTS,
@@ -60,58 +116,22 @@ async function resolveProtocol (createLookupContext, protocol, name, opts = {}) 
   protocol = getProtocol(opts, protocol)
   return wrapContext(async (context, signal) => {
     let entry
-    let isCachedEntry = true
-    const { cache, ignoreCache, ignoreCachedMiss, minTTL, maxTTL } = opts
+    const { cache, ignoreCache, ignoreCachedMiss } = opts
     if (!ignoreCache && cache) {
       entry = await getCacheEntry(cache, protocol, name, entry)
       if (isEntryActive(protocol, name, entry, ignoreCachedMiss)) {
         return entry.key
       }
     }
-    let { ttl } = opts
     try {
-      let key = null
-      const result = await protocol(context, name)
-      bubbleAbort(signal)
-      if (result !== undefined) {
-        key = result.key
-        ttl = result.ttl
-      }
-      isCachedEntry = false
-      ttl = sanitizeTTL(ttl, minTTL, maxTTL)
-      if (key === null) {
-        debug('Lookup of %s:%s[ttl=%s] returned "null", marking it as a miss.', protocol.name, name, ttl)
-      } else {
-        debug('Successful lookup of %s:%s[ttl=%s]: %s', protocol.name, name, ttl, result.key)
-      }
-      entry = {
-        key,
-        expires: ttl === undefined ? null : Date.now() + ttl * 1000
-      }
+      entry = await resolveRaw(context, signal, opts, protocol, name)
     } catch (error) {
       if (error instanceof AbortError || error instanceof TypeError) {
         throw error
       }
-      if (ignoreCache && cache) {
-        debug('Falling back to cache, as error occured while looking up %s:%s: %s', protocol.name, name, error)
-        entry = await getCacheEntry(cache, protocol, name, entry)
-        return entry ? entry.key : null
-      }
-      if (entry !== undefined) {
-        debug('Using cached entry(expires=%s) because looking up %s:%s failed: %s', entry.expires, protocol.name, name, error)
-        return entry.key
-      }
-      debug('Error while looking up %s:%s: %s', protocol.name, name, error)
-      return null
+      return await fallbackToCache(protocol, name, ignoreCache, cache, entry, error)
     }
-    const now = Date.now()
-    if (cache && !isCachedEntry && entry.expires !== null && now < entry.expires && entry.expires <= now + maxTTL * 1000) {
-      try {
-        await cache.set(protocol.name, name, entry)
-      } catch (error) {
-        debug('Error while storing protocol %s and name %s in cache: %s', protocol.name, name, error)
-      }
-    }
+    await storeCacheEntry(protocol, name, opts, entry)
     return entry.key
   }, createLookupContext, opts)
 }
