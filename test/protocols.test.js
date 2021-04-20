@@ -49,6 +49,126 @@ const { matchRegex } = require('../resolve-context.js')
 })()
 
 ;(() => {
+  const { hyper } = protocols
+  const key = '100c77d788fdaf07b89b28e9d276e47f2e44011f4adb981921056e1b3b40e99e'
+  test('hyper: local urls', async t => {
+    t.deepEquals(
+      await hyper({ matchRegex }, key),
+      { key, ttl: null }
+    )
+  })
+  test('hyper: looking for hyper dns records', async t => {
+    const name = 'dat-ecosystem.org'
+    t.plan(3)
+    t.deepEquals(
+      await hyper({
+        matchRegex,
+        async getDNSTxtRecord (domain, regex) {
+          t.equals(domain, name)
+          t.match(`hyperkey=${key}`, regex)
+          return { key, ttl: 10 }
+        }
+      }, name),
+      { key, ttl: 10 }
+    )
+  })
+  test('hyper: looking for datkey dns records', async t => {
+    const name = 'dat-ecosystem.org'
+    t.plan(5)
+    let calls = 0
+    t.deepEquals(
+      await hyper({
+        matchRegex,
+        async getDNSTxtRecord (domain, regex) {
+          calls += 1
+          if (calls === 1) {
+            t.pass('first call')
+            return undefined
+          }
+          t.equals(calls, 2)
+          t.equals(domain, name)
+          t.match(`datkey=${key}`, regex)
+          return { key, ttl: 10 }
+        }
+      }, name),
+      { key, ttl: 10 }
+    )
+  })
+  test('hyper: looking for well-known hyper record', async t => {
+    const name = 'dat-ecosystem.org'
+    t.plan(9)
+    t.deepEquals(
+      await hyper({
+        matchRegex,
+        isLocal: () => false,
+        async getDNSTxtRecord () {
+          t.pass('asking for dns record')
+          return undefined
+        },
+        async fetchWellKnown (domain, schema, regex, redirects) {
+          t.equals(redirects, 6)
+          t.equals(domain, name)
+          t.equals(schema, 'hyper')
+          t.match(key, regex)
+          t.match(`hyper:${key}`, regex)
+          t.match(`hyper://${key}`, regex)
+          return { key, ttl: 10 }
+        }
+      }, name),
+      { key, ttl: 10 }
+    )
+  })
+  test('hyper: falling back to well-known dat record', async t => {
+    const name = 'dat-ecosystem.org'
+    t.plan(11)
+    let calls = 0
+    t.deepEquals(
+      await hyper({
+        matchRegex,
+        isLocal: () => false,
+        async getDNSTxtRecord () {
+          t.pass('asking for dns record')
+          return undefined
+        },
+        async fetchWellKnown (domain, schema, regex, redirects) {
+          calls += 1
+          if (calls === 1) {
+            t.pass('hyper well known returns undefined')
+            return undefined
+          }
+          t.equals(calls, 2)
+          t.equals(redirects, 6)
+          t.equals(domain, name)
+          t.equals(schema, 'dat')
+          t.match(key, regex)
+          t.match(`dat:${key}`, regex)
+          t.match(`dat://${key}`, regex)
+          return { key, ttl: 10 }
+        }
+      }, name),
+      { key, ttl: 10 }
+    )
+  })
+  test('hyper: looking for well-known may miss', async t => {
+    const name = 'dat-ecosystem.org'
+    t.plan(5)
+    t.deepEquals(
+      await hyper({
+        matchRegex,
+        isLocal: () => false,
+        async getDNSTxtRecord (_name, regex) {
+          t.pass(`dns TXT record ${name}: ${regex}`)
+        },
+        async fetchWellKnown (_name, regex) {
+          t.pass(`well-known ${name}: ${regex}`)
+        }
+      }, name),
+      undefined
+    )
+  })
+})()
+
+;(() => {
   const { cabal } = protocols
   const key = '100c77d788fdaf07b89b28e9d276e47f2e44011f4adb981921056e1b3b40e99e'
   test('cabal: local urls', async t => {

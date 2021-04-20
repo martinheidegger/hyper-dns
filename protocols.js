@@ -8,7 +8,7 @@ module.exports = Object.freeze({
     if (record !== undefined) {
       return record
     }
-    return await context.fetchWellKnown(name, 'dat', /^\s*(?:(?:dat):)?(?:\/\/)?(?<key>[0-9a-f]{64})\s*$/i, 6)
+    return await context.fetchWellKnown(name, 'dat', /^\s*(?:dat:)?(?:\/\/)?(?<key>[0-9a-f]{64})\s*$/i, 6)
   },
   async hyper (context, name) {
     let record = context.matchRegex(name, /^(?<key>[0-9a-f]{64})$/i)
@@ -23,7 +23,11 @@ module.exports = Object.freeze({
     if (record !== undefined) {
       return record
     }
-    return await context.fetchWellKnown(name, 'dat', /^\s*(?:(?:dat):)?(?:\/\/)?(?<key>[0-9a-f]{64})\s*$/i, 6)
+    record = await context.fetchWellKnown(name, 'hyper', /^\s*(?:(?:dat|hyper):)?(?:\/\/)?(?<key>[0-9a-f]{64})\s*$/i, 6)
+    if (record !== undefined) {
+      return record
+    }
+    return await context.fetchWellKnown(name, 'dat', /^\s*(?:dat:)?(?:\/\/)?(?<key>[0-9a-f]{64})\s*$/i, 6)
   },
   async cabal (context, name) {
     let record = context.matchRegex(name, /^(?<key>[0-9a-f]{64})$/i)

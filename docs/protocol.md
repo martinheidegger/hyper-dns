@@ -120,6 +120,15 @@ const { cabal } = require('hyper-dns').protocols
 
 The [cabal chat](https://cabal.chat/) protocol works the same way as `dat` does but has a different lookups for DNS entries (cabalkey=) and uses the `/.well-known/cabal` lookup.
 
+### hyper
+
+```javascript
+const { hyper } = require('hyper-dns').protocols
+```
+
+The second version of the `dat` protocol that should be outphasing the first version over long time.
+Current it is in discussion of how the protocol is specified, use with care!
+
 ### See a missing protocol?
 
 If you have an implementation that should really find its way into `hyper-dns`: feel free to open a Pull Request and suggest it as default for a protocol!
