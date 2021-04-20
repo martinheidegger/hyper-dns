@@ -18,12 +18,12 @@ class RecordNotFoundError extends Error {
 RecordNotFoundError.prototype.code = 'ENOTFOUND'
 
 // some protocols have always slashes
-const slashesRequired = ['file', 'https', 'http', 'ftp']
+const slashesRequired = ['file:', 'https:', 'http:', 'ftp:']
 // some protocols require to have the pathname be set to at least /
-const pathnameRequired = ['https', 'http', 'ftp']
+const pathnameRequired = ['https:', 'http:', 'ftp:']
 
 // Extended from https://tools.ietf.org/html/rfc3986#appendix-B
-const urlRegex = /^(?:(?<protocol>[^:/?#]+):)?(?:(?<slashes>\/\/)?(?:(?<username>[^@:]*)(?::(?<password>[^@]*))?@)?(?:(?<hostname>[^/?#:+]*)(?:\+(?<version>[^/?#:]*))?(?::(?<port>[0-9]+))?)?)?(?<pathname>[^?#]+)?(?:\?(?<search>[^#]*))?(?:#(?<hash>.*))?$/
+const urlRegex = /^(?<protocol>[^:/?#]+:)?(?:(?<slashes>\/\/)?(?:(?<username>[^@:]*)(?::(?<password>[^@]*))?@)?(?:(?<hostname>[^/?#:+]*)(?:\+(?<version>[^/?#:]*))?(?::(?<port>[0-9]+))?)?)?(?<pathname>[^?#]+)?(?<search>[^#]+)?(?<hash>.+)?$/
 
 function parseURL (input) {
   const url = urlRegex.exec(input).groups
@@ -34,72 +34,93 @@ function parseURL (input) {
   return url
 }
 
+function resolveRelative (url, base) {
+  const basePath = `${base.pathname || ''}`
+  return {
+    ...url,
+    ...base,
+    pathname: `${basePath}${basePath.endsWith('/') ? '' : '/../'}${url.pathname}`,
+    search: url.search,
+    hash: url.hash
+  }
+}
+
+function sanitizeBase (base) {
+  if (typeof base === 'string') {
+    return new LightURL(base)
+  }
+  return base || null
+}
+
+function sanitizeURLInput (input, base) {
+  const url = typeof input === 'string' ? parseURL(input) : input
+  if (url.protocol !== undefined) {
+    return url
+  }
+  base = sanitizeBase(base)
+  if (base === null) {
+    throw new TypeError(`Invalid URL: ${String(input)}`)
+  }
+  return resolveRelative(url, base)
+}
+
+function compileURLProperties (url) {
+  const slashes = slashesRequired.includes(url.protocol) ? '//' : url.slashes || ''
+  const auth = url.username ? `${url.username}${url.password ? `:${url.password}` : ''}@` : ''
+  const versionStr = url.version ? `+${url.version}` : ''
+  const port = url.port ? `:${url.port}` : ''
+  const prefix = `${url.protocol || ''}${slashes || ''}${auth}${url.hostname || ''}`
+  const postfix = `${port}${url.pathname || ''}${url.search || ''}${url.hash || ''}`
+  return {
+    host: url.hostname ? (url.port ? `${url.hostname}:${url.port}` : url.hostname) : null,
+    href: `${prefix}${postfix}`,
+    versionedHref: `${prefix}${versionStr}${postfix}`
+  }
+}
+
+function sanitizePathname (url) {
+  let { protocol, pathname } = url
+  if (pathname) {
+    // Processing ../ and ./ path entries
+    const path = []
+    const parts = pathname.split('/')
+    for (const entry of parts) {
+      if (entry === '.') {
+        continue
+      }
+      if (entry === '..') {
+        path.pop()
+        continue
+      }
+      path.push(entry)
+    }
+    pathname = path.join('/')
+    return pathname.startsWith('/') ? pathname : `/${pathname}`
+  }
+  if (pathnameRequired.includes(protocol)) {
+    return '/'
+  }
+  return null
+}
+
 /**
  * The URL class of node and browsers behave inconsistently
  * LightURL is a simplified version of URL that behaves same and works with versions.
  */
 class LightURL {
   constructor (input, base) {
-    const url = typeof input === 'string' ? parseURL(input) : input
-    base = typeof base === 'string' ? new LightURL(base) : base || null
-    if (url.protocol === undefined) {
-      if (base !== null) {
-        const basePath = `${base.pathname || ''}`
-        url.pathname = `${basePath}${basePath.endsWith('/') ? '' : '/../'}${url.pathname}`
-        url.protocol = base.protocol ? base.protocol.substr(0, base.protocol.length - 1) : null
-        url.hostname = base.hostname
-        url.version = base.version
-        url.port = base.port
-        url.username = base.username
-        url.password = base.password
-        url.slashes = base.slashes
-      } else {
-        throw new TypeError(`Invalid URL: ${String(input)}`)
-      }
-    }
-    this.protocol = url.protocol ? `${url.protocol}:` : null
-    this.host = url.hostname ? (url.port ? `${url.hostname}:${url.port}` : url.hostname) : null
+    const url = sanitizeURLInput(input, base)
+    this.protocol = url.protocol || null
     this.hostname = url.hostname || null
-    let pathname = url.pathname || null
-    if (pathname === null) {
-      if (pathnameRequired.includes(url.protocol)) {
-        pathname = '/'
-      }
-    } else {
-      // Processing ../ and ./ path entries
-      const path = []
-      const parts = pathname.split('/')
-      for (const entry of parts) {
-        if (entry === '.') {
-          continue
-        }
-        if (entry === '..') {
-          path.pop()
-          continue
-        }
-        path.push(entry)
-      }
-      pathname = path.join('/')
-      if (!pathname.startsWith('/')) {
-        pathname = `/${pathname}`
-      }
-    }
-    this.pathname = pathname
-    this.search = url.search ? `?${url.search}` : null
-    this.hash = url.hash ? `#${url.hash}` : null
+    this.pathname = sanitizePathname(url)
+    this.search = url.search || null
+    this.hash = url.hash || null
     this.username = url.username || null
     this.password = url.password || null
     this.port = url.port || null
     this.version = url.version || null
     this.slashes = url.slashes || null
-    const slashes = slashesRequired.includes(url.protocol) ? '//' : url.slashes || ''
-    const auth = this.username ? `${this.username}${this.password ? `:${this.password}` : ''}@` : ''
-    const versionStr = this.version ? `+${this.version}` : ''
-    const port = this.port ? `:${this.port}` : ''
-    const prefix = `${this.protocol || ''}${slashes || ''}${auth}${this.hostname || ''}`
-    const postfix = `${port}${this.pathname || ''}${this.search || ''}${this.hash || ''}`
-    this.href = `${prefix}${postfix}`
-    this.versionedHref = `${prefix}${versionStr}${postfix}`
+    Object.assign(this, compileURLProperties(this))
     Object.freeze(this)
   }
 
@@ -245,14 +266,15 @@ async function resolveURL (createLookupContext, input, opts) {
     ...opts
   }
   return await wrapContext(async (context, signal) => {
-    if (!url.protocol || supportsProtocol(opts.protocols, url.protocol)) {
+    const p = url.protocol ? url.protocol.substr(0, url.protocol.length - 1) : null
+    if (!p || supportsProtocol(opts.protocols, p)) {
       const childOpts = {
         ...opts,
         context,
         signal
       }
-      if (url.protocol) {
-        const key = await resolveProtocol(createLookupContext, url.protocol, url.hostname, childOpts)
+      if (p) {
+        const key = await resolveProtocol(createLookupContext, p, url.hostname, childOpts)
         if (key !== null) {
           url.hostname = key
         } else {
@@ -262,14 +284,14 @@ async function resolveURL (createLookupContext, input, opts) {
         for (const protocol of getProtocols(opts)) {
           const key = await resolveProtocol(createLookupContext, protocol, url.hostname, childOpts)
           if (key !== null) {
-            url.protocol = protocol.name
+            url.protocol = `${protocol.name}:`
             url.hostname = key
             url.slashes = '//'
             break
           }
         }
         if (!url.protocol) {
-          url.protocol = opts.fallbackProtocol
+          url.protocol = `${opts.fallbackProtocol}:`
         }
       }
     }
