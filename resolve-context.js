@@ -227,30 +227,18 @@ async function fetchDnsTxtOverHttps (fetch, name, opts) {
       continue // Try next doh provider
     }
     bubbleAbort(opts.signal)
-    const answers = await txtAnswersFromResponse(opts, name, path, res)
+    const record = await jsonFromResponse(opts, name, path, res)
+    if (record === undefined) {
+      continue // Try next doh provider
+    }
+    const answers = answersFromRecord(record)
     if (answers !== undefined) {
       return answers
     }
   }
 }
 
-async function txtAnswersFromResponse (opts, name, path, res) {
-  if (res.status !== 200) {
-    /* c8 ignore next */
-    const text = debug.enabled ? await res.text() : null
-    debug('doh: Http status error[code=%s] while looking up %s: %s', res.status, path, text)
-    return // Try next doh provider
-  }
-  const body = await res.text()
-  bubbleAbort(opts.signal)
-  debug('doh: lookup for name: %s at %s resulted in %s', name, path, res.status, body)
-  let record
-  try {
-    record = JSON.parse(body)
-  } catch (error) {
-    debug('doh: Invalid record, must provide valid json:\n%s', error)
-    return // Try next doh provider
-  }
+async function answersFromRecord (record) {
   if (typeof record !== 'object') {
     debug('doh: Invalid record, root needs to be an object')
     return // Try next doh provider
@@ -266,4 +254,21 @@ async function txtAnswersFromResponse (opts, name, path, res) {
     return // Try next doh provider
   }
   return answers
+}
+
+async function jsonFromResponse (opts, name, path, res) {
+  if (res.status !== 200) {
+    /* c8 ignore next */
+    const text = debug.enabled ? await res.text() : null
+    debug('doh: Http status error[code=%s] while looking up %s: %s', res.status, path, text)
+    return // Try next doh provider
+  }
+  const body = await res.text()
+  bubbleAbort(opts.signal)
+  debug('doh: lookup for name: %s at %s resulted in %s', name, path, res.status, body)
+  try {
+    return JSON.parse(body)
+  } catch (error) {
+    debug('doh: Invalid record, must provide valid json:\n%s', error)
+  }
 }
