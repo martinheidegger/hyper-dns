@@ -12,139 +12,106 @@ const Q_CLEAR = 'DELETE FROM $table'
 const Q_READ = 'SELECT key, expires from $table WHERE name = $name AND protocol = $protocol'
 const Q_FLUSH = 'DELETE FROM $table WHERE expires < $now'
 
-function createCacheSqlite (opts) {
-  opts = {
-    ...createCacheSqlite.DEFAULTS,
-    ...opts
-  }
-  const lru = createCacheLRU(opts)
-  const { file, table, autoClose, maxWalSize, walCheckInterval } = opts
+function createDemandDB (opts) {
   let db = null
   return {
-    async clear () {
-      await lru.clear()
-      run(Q_CLEAR, {})
+    demand () {
+      /* c8 ignore start */
+      // Not tested it this case may be happening when a db closes as result of an internal error
+      if (db !== null && !db.open) {
+        db.close()
+        db = null
+      }
+      /* c8 ignore end */
+      if (db === null) {
+        db = openDb(opts)
+      }
+      return db
     },
-    async clearName (name) {
-      await lru.clearName(name)
-      run(Q_CLEAR_NAME, { name })
-    },
-    async close () {
+    close () {
       if (db !== null && db.open) {
         db.close()
         db = null
       }
-    },
-    async flush (timestamp) {
-      timestamp = typeof timestamp === 'number' ? timestamp : Date.now()
-      await lru.flush(timestamp)
-      run(Q_FLUSH, { now: timestamp })
-    },
-    async get (protocol, name) {
-      let entry = await lru.get(protocol, name)
-      if (entry !== undefined) {
-        return entry
-      }
-      try {
-        entry = one(Q_READ, { protocol, name })
-      } catch (error) {
-        debug('error while restoring %s:%s from sqlite cache: %s', protocol, name, error)
-        return
-      }
-      debug('successfully restored %s:%s from sqlite cache', protocol, name)
-      await lru.set(protocol, name, entry)
-      return entry
-    },
-    async set (protocol, name, entry) {
-      await lru.set(protocol, name, entry)
-      const { key, expires } = entry
-      try {
-        run(Q_WRITE, { protocol, name, expires, key, updated: Date.now() })
-      } catch (error) {
-        debug('error while storing %s:%s in sqlite cache: %s', protocol, name, error)
+    }
+  }
+}
+
+function openDb (opts) {
+  const { file, table, autoClose, maxWalSize, walCheckInterval } = opts
+  debug('opening database %s: %s', file, table)
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  const db = new Database(file)
+  db.pragma('journal_mode = WAL')
+
+  // Making sure that the table exists
+  const s = db.prepare(Q_CREATE_TABLE.replace('$table', table))
+  debug(s.source)
+  s.run()
+
+  // Support helper for autoClose
+  let count = 0
+  let timeout
+  const registerInterest = () => {
+    if (timeout !== undefined) {
+      clearTimeout(timeout)
+      timeout = undefined
+    }
+    count += 1
+    return function unregister () {
+      count -= 1
+      if (count === 0 && db.open && autoClose > 0) {
+        timeout = setTimeout(db.close, autoClose)
       }
     }
   }
 
-  function createDB (file, table) {
-    debug('opening database %s: %s', file, table)
-    fs.mkdirSync(path.dirname(file), { recursive: true })
-    const db = new Database(file)
-    db.pragma('journal_mode = WAL')
-
-    // Making sure that the table exists
-    const s = db.prepare(Q_CREATE_TABLE.replace('$table', table))
-    debug(s.source)
-    s.run()
-
-    // Support helper for autoClose
-    let count = 0
-    let timeout
-    const registerInterest = () => {
-      if (timeout !== undefined) {
-        clearTimeout(timeout)
-        timeout = undefined
-      }
-      count += 1
-      return function unregister () {
-        count -= 1
-        if (count === 0 && db.open && autoClose > 0) {
-          timeout = setTimeout(db.close, autoClose)
-        }
-      }
+  // Overriding close to make sure everything is properly closed
+  const _close = db.close
+  const close = () => {
+    debug('closing db')
+    if (timeout !== undefined) {
+      clearTimeout(timeout)
+      timeout = undefined
     }
-
-    // Overriding close to make sure everything is properly closed
-    const _close = db.close
-    const close = () => {
-      debug('closing db')
-      if (timeout !== undefined) {
-        clearTimeout(timeout)
-        timeout = undefined
-      }
-      process.off('exit', close)
-      if (db.open) {
-        _close.call(db)
-      }
-      clearInterval(walClearInterval)
-      return db
+    process.off('exit', close)
+    if (db.open) {
+      _close.call(db)
     }
-    // See https://github.com/JoshuaWise/better-sqlite3/blob/master/docs/performance.md
-    const walClearInterval = setInterval(fs.stat.bind(null, `${file}-wal`, (err, stat) => {
-      if (!err && stat.size > maxWalSize && db.open) {
-        db.pragma('wal_checkpoint(RESTART)')
-      }
-    }), walCheckInterval)
-    process.on('exit', close)
-
-    db.registerInterest = registerInterest
-    db.close = close
-    db.prepared = {}
+    clearInterval(walClearInterval)
     return db
   }
+  // See https://github.com/JoshuaWise/better-sqlite3/blob/master/docs/performance.md
+  const walClearInterval = setInterval(fs.stat.bind(null, `${file}-wal`, (err, stat) => {
+    if (!err && stat.size > maxWalSize && db.open) {
+      db.pragma('wal_checkpoint(RESTART)')
+    }
+  }), walCheckInterval)
+  process.on('exit', close)
 
-  function assertDb () {
-    /* c8 ignore start */
-    // Not tested it this case may be happening when a db closes as result of an internal error
-    if (db !== null && !db.open) {
-      db.close()
-      db = null
-    }
-    /* c8 ignore end */
-    if (db === null) {
-      db = createDB(file, table, debug)
-    }
-    return db
-  }
+  db.registerInterest = registerInterest
+  db.close = close
+  db.prepared = {}
+  return db
+}
 
-  function exec (handler) {
-    const db = assertDb()
-    const unregister = db.registerInterest()
-    try {
-      return handler(db)
-    } finally {
-      unregister()
-    }
+function createQueryAPI (opts) {
+  const demandDb = createDemandDB(opts)
+  const { table } = opts
+  return {
+    run (query, args) {
+      execStatement(query, statement => {
+        debug('%s -- %s', statement.source, args)
+        statement.run(args)
+      })
+    },
+    one (query, args) {
+      return execStatement(query, statement => {
+        debug('%s -- %s', statement.source, args)
+        return statement.get(args)
+      })
+    },
+    close: demandDb.close
   }
 
   function execStatement (query, handler) {
@@ -158,24 +125,65 @@ function createCacheSqlite (opts) {
     })
   }
 
-  function run (query, args) {
-    execStatement(
-      query,
-      statement => {
-        debug('%s -- %s', statement.source, args)
-        statement.run(args)
-      }
-    )
+  function exec (handler) {
+    const db = demandDb.demand()
+    const unregister = db.registerInterest()
+    try {
+      return handler(db)
+    } finally {
+      unregister()
+    }
   }
+}
 
-  function one (query, args) {
-    return execStatement(
-      query,
-      statement => {
-        debug('%s -- %s', statement.source, args)
-        return statement.get(args)
+function createCacheSqlite (opts) {
+  opts = {
+    ...createCacheSqlite.DEFAULTS,
+    ...opts
+  }
+  const lru = createCacheLRU(opts)
+  const query = createQueryAPI(opts)
+  return {
+    async clear () {
+      await lru.clear()
+      query.run(Q_CLEAR, {})
+    },
+    async clearName (name) {
+      await lru.clearName(name)
+      query.run(Q_CLEAR_NAME, { name })
+    },
+    async close () {
+      query.close()
+    },
+    async flush (timestamp) {
+      timestamp = typeof timestamp === 'number' ? timestamp : Date.now()
+      await lru.flush(timestamp)
+      query.run(Q_FLUSH, { now: timestamp })
+    },
+    async get (protocol, name) {
+      let entry = await lru.get(protocol, name)
+      if (entry !== undefined) {
+        return entry
       }
-    )
+      try {
+        entry = query.one(Q_READ, { protocol, name })
+      } catch (error) {
+        debug('error while restoring %s:%s from sqlite cache: %s', protocol, name, error)
+        return
+      }
+      debug('successfully restored %s:%s from sqlite cache', protocol, name)
+      await lru.set(protocol, name, entry)
+      return entry
+    },
+    async set (protocol, name, entry) {
+      await lru.set(protocol, name, entry)
+      const { key, expires } = entry
+      try {
+        query.run(Q_WRITE, { protocol, name, expires, key, updated: Date.now() })
+      } catch (error) {
+        debug('error while storing %s:%s in sqlite cache: %s', protocol, name, error)
+      }
+    }
   }
 }
 createCacheSqlite.DEFAULTS = Object.freeze({
