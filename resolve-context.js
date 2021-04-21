@@ -45,66 +45,14 @@ function createSimpleFetch (fetch, opts) {
 }
 
 function createResolveContext (fetch, dnsTxtFallback, opts) {
-  const dnsTxtLookups = {}
   const { localPort } = opts
   const simpleFetch = createSimpleFetch(fetch, opts)
 
-  // This is not a class on purpose! We don't trust the protocols
-  // to read the state of the context.
+  // This is not a class on purpose! We don't trust the protocols to read the state of the context.
   return Object.freeze({
     isLocal,
     matchRegex,
-    async getDNSTxtRecord (name, txtRegex) {
-      if (isLocal(name)) {
-        debug('Domain "%s" is identified as local (not fully qualified). Skipping dns lookup.', name)
-        return
-      }
-      let lookup = dnsTxtLookups[name]
-      if (lookup === undefined) {
-        lookup = fetchDnsTxtRecords(dnsTxtFallback, simpleFetch, name, opts)
-        dnsTxtLookups[name] = lookup
-      }
-      const answers = (await lookup).filter(a => {
-        if (a === null || typeof a !== 'object') {
-          return false
-        }
-        if (typeof a.data !== 'string') {
-          return false
-        }
-        return true
-      })
-      if (answers === undefined || answers.length === 0) {
-        return
-      }
-      let keys = answers
-        .map(({ data, TTL: ttl }) => {
-          const match = txtRegex.exec(data)
-          if (!match) {
-            return undefined
-          }
-          if (!match.groups || !match.groups.key) {
-            throw new TypeError(`specified txtRegex doesn't contain a "key" group like /(?<key>[0-9a-f]{64})/: ${txtRegex}`)
-          }
-          return { key: match.groups.key, ttl }
-        })
-        .filter(Boolean)
-      if (keys.length === 0) {
-        debug('doh: No matching TXT record found')
-        return
-      } else if (keys.length > 1) {
-        debug('doh: Warning: multiple dns TXT records for found, using the logically largest')
-        keys = keys
-          // Open DNS servers are not consistent in the ordering of TXT entries.
-          // In order to have a consistent behavior we sort keys in case we find multiple.
-          .sort((a, b) => a.key < b.key ? 1 : a.key > b.key ? -1 : 0)
-      }
-      const res = keys[0]
-      if (typeof res.ttl !== 'number' || isNaN(res.ttl) || res.ttl < 0) {
-        debug('doh: no valid ttl for key=%s specified (%s), falling back to regular ttl (%s)', res.key, res.ttl, opts.ttl)
-        res.ttl = opts.ttl
-      }
-      return res
-    },
+    getDNSTxtRecord: createGetDNSTxtRecord(opts, simpleFetch, dnsTxtFallback),
     async fetchWellKnown (name, schema, keyRegex, followRedirects) {
       const href = `https://${name}${isLocal(name) && localPort ? `:${localPort}` : ''}/.well-known/${schema}`
       const res = await fetchWellKnownRecord(simpleFetch, name, href, followRedirects, opts)
@@ -127,6 +75,69 @@ function createResolveContext (fetch, dnsTxtFallback, opts) {
 }
 createResolveContext.isLocal = isLocal
 createResolveContext.matchRegex = matchRegex
+
+function createGetDNSTxtRecord (opts, simpleFetch, dnsTxtFallback) {
+  const dnsTxtLookups = {}
+  return async function getDNSTxtRecord (name, txtRegex) {
+    if (isLocal(name)) {
+      debug('Domain "%s" is identified as local (not fully qualified). Skipping dns lookup.', name)
+      return
+    }
+    let lookup = dnsTxtLookups[name]
+    if (lookup === undefined) {
+      lookup = fetchDnsTxtRecords(dnsTxtFallback, simpleFetch, name, opts)
+      dnsTxtLookups[name] = lookup
+    }
+    return keyForTextEntries(opts, await lookup, txtRegex)
+  }
+}
+
+function keyForTextEntries (opts, txtEntries, txtRegex) {
+  let keys = keysForTxtEntries(txtEntries, txtRegex)
+  if (keys.length === 0) {
+    debug('doh: No matching TXT record found')
+    return
+  }
+  if (keys.length > 1) {
+    // Note: Open DNS servers are not consistent in the ordering of TXT entries!
+    debug('doh: Warning: multiple dns TXT records for found, using the logically largest')
+    keys = keys.sort(largestKey)
+  }
+  const res = keys[0]
+  if (typeof res.ttl !== 'number' || isNaN(res.ttl) || res.ttl < 0) {
+    debug('doh: no valid ttl for key=%s specified (%s), falling back to regular ttl (%s)', res.key, res.ttl, opts.ttl)
+    res.ttl = opts.ttl
+  }
+  return res
+}
+
+const largestKey = (a, b) => a.key < b.key ? 1 : a.key > b.key ? -1 : 0
+
+function invalidTxtEntry (entry) {
+  if (entry === null || typeof entry !== 'object') {
+    return false
+  }
+  if (typeof entry.data !== 'string') {
+    return false
+  }
+  return true
+}
+
+function keysForTxtEntries (txtEntries, txtRegex) {
+  return txtEntries
+    .filter(invalidTxtEntry)
+    .map(({ data, TTL: ttl }) => {
+      const match = txtRegex.exec(data)
+      if (!match) {
+        return undefined
+      }
+      if (!match.groups || !match.groups.key) {
+        throw new TypeError(`specified txtRegex doesn't contain a "key" group like /(?<key>[0-9a-f]{64})/: ${txtRegex}`)
+      }
+      return { key: match.groups.key, ttl }
+    })
+    .filter(Boolean)
+}
 
 function parseWellKnownTTL (opts, secondLine) {
   let { ttl } = opts
