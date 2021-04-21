@@ -145,12 +145,10 @@ module.exports = Object.freeze(createResolveContext)
 
 async function fetchWellKnownRecord (simpleFetch, name, href, followRedirects, opts) {
   const { corsWarning } = opts
+  debug('well-known lookup at %s', href)
   let redirectCount = 0
   while (true) {
     bubbleAbort(opts.signal)
-    if (redirectCount === 0) {
-      debug('well-known lookup at %s', href)
-    }
     let res
     try {
       res = await simpleFetch(href)
@@ -162,15 +160,8 @@ async function fetchWellKnownRecord (simpleFetch, name, href, followRedirects, o
       corsWarning(name, res.url)
     }
     if ([301, 302, 307, 308].includes(res.status)) {
-      const newLocation = res.headers.get('Location')
-      if (!newLocation) {
-        debug('well-known lookup for %s redirected (%s) from %s to nowhere', name, res.status, href)
-        return
-      }
-      // resolve relative paths with original URL as base URL
-      const uri = new URL(newLocation, href)
-      if (uri.protocol !== 'https:') {
-        debug('well-known lookup for %s redirected (%s) from %s to non-https location: %s', name, res.status, href, newLocation)
+      const url = processRedirect(name, href, res)
+      if (url === undefined) {
         return
       }
       redirectCount++
@@ -178,12 +169,27 @@ async function fetchWellKnownRecord (simpleFetch, name, href, followRedirects, o
         debug('well-known lookup for %s exceeded redirect limit: %s', name, followRedirects)
         return
       }
-      debug('well-known lookup for %s redirected from %s to %s (%s) [%s/%s]', name, href, uri.href, res.status, redirectCount, followRedirects)
-      href = uri.href
+      debug('well-known lookup for %s redirected from %s to %s (%s) [%s/%s]', name, href, url.href, res.status, redirectCount, followRedirects)
+      href = url.href
     } else {
       return res
     }
   }
+}
+
+function processRedirect (name, href, res) {
+  const newLocation = res.headers.get('Location')
+  if (!newLocation) {
+    debug('well-known lookup for %s redirected (%s) from %s to nowhere', name, res.status, href)
+    return
+  }
+  // resolve relative paths with original URL as base URL
+  const url = new URL(newLocation, href)
+  if (url.protocol !== 'https:') {
+    debug('well-known lookup for %s redirected (%s) from %s to non-https location: %s', name, res.status, href, newLocation)
+    return
+  }
+  return url
 }
 
 function * randomized (array) {
