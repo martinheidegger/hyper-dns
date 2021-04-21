@@ -45,7 +45,7 @@ function createSimpleFetch (fetch, opts) {
 }
 
 function createResolveContext (fetch, dnsTxtFallback, opts) {
-  const { localPort } = opts
+  const { localPort, corsWarning } = opts
   const simpleFetch = createSimpleFetch(fetch, opts)
 
   // This is not a class on purpose! We don't trust the protocols to read the state of the context.
@@ -68,6 +68,9 @@ function createResolveContext (fetch, dnsTxtFallback, opts) {
       }
       if (!match.groups || !match.groups.key) {
         throw new TypeError(`specified keyRegex doesn't provide a "key" group response like /(?<key>[0-9a-f]{64})/: ${keyRegex}`)
+      }
+      if (corsWarning && res.headers.get('access-control-allow-origin') !== '*') {
+        corsWarning(name, res.url)
       }
       return { key: match.groups.key, ttl: parseWellKnownTTL(opts, secondLine) }
     }
@@ -155,7 +158,6 @@ function parseWellKnownTTL (opts, secondLine) {
 module.exports = Object.freeze(createResolveContext)
 
 async function fetchWellKnownRecord (simpleFetch, name, href, followRedirects, opts) {
-  const { corsWarning } = opts
   debug('well-known lookup at %s', href)
   let redirectCount = 0
   while (true) {
@@ -166,9 +168,6 @@ async function fetchWellKnownRecord (simpleFetch, name, href, followRedirects, o
     } catch (error) {
       debug('well-known lookup: error while fetching %s: %s', href, error)
       return
-    }
-    if (corsWarning && res.headers.get('access-control-allow-origin') !== '*') {
-      corsWarning(name, res.url)
     }
     if ([301, 302, 307, 308].includes(res.status)) {
       const url = processRedirect(name, href, res)
@@ -182,9 +181,15 @@ async function fetchWellKnownRecord (simpleFetch, name, href, followRedirects, o
       }
       debug('well-known lookup for %s redirected from %s to %s (%s) [%s/%s]', name, href, url.href, res.status, redirectCount, followRedirects)
       href = url.href
-    } else {
-      return res
+      continue
     }
+    if (res.status !== 200) {
+      /* c8 ignore next */
+      const text = debug.enabled ? await res.text() : null
+      debug('well-known lookup for %s failed with http status error[code=%s] while looking up %s: %s', name, res.status, res.href, text)
+      return
+    }
+    return res
   }
 }
 

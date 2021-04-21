@@ -375,6 +375,24 @@ test('no cors warning for well-known lookups with right header', async t => {
   t.equals(corsWarningExecuted, 0)
 })
 
+test('well known entries are ignored with wrong status', async t => {
+  const resultUrl = 'https://datproject.org/.well-known/dat'
+  const fetch = async () => fetchResponse({
+    status: 500,
+    url: resultUrl,
+    text: 'abc'
+  })
+  const ctx = createResolveContext(fetch, null, {
+    corsWarning: () => {
+      t.fail('no cors warning expected')
+    }
+  })
+  t.same(
+    await ctx.fetchWellKnown('localhost', 'dat', /^(?<key>.{3})$/i, 6),
+    undefined
+  )
+})
+
 test('isLocal matches lonely domain names', async t => {
   t.ok(isLocal('localhost'))
   t.ok(isLocal('my.localhost'))
