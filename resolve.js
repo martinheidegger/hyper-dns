@@ -305,6 +305,10 @@ async function getCacheEntry (opts, protocol, name) {
   if (entry === undefined) {
     return
   }
+  return await validateCacheEntry(protocol, name, entry)
+}
+
+async function validateCacheEntry(protocol, name, entry) {
   if (entry === null) {
     debug('cache entry for %s:%s was empty', protocol.name, name)
     return
@@ -318,13 +322,14 @@ async function getCacheEntry (opts, protocol, name) {
     debug('cache entry for %s:%s contained unexpected .expires property, expected number was: %s', protocol.name, name, expires)
     return
   }
-  if (key !== null) {
-    // The protocol is supposed to use .matchRegex to see if the domain to resolve contains a key.
-    // A result indicates that the key indeed is valid
-    if (await protocol(sanitizingContext, key) === undefined) {
-      debug('cache entry for %s:%s not identified as valid key: %s', protocol.name, name, key)
-      return
-    }
+  if (key === null) {
+    return entry
+  }
+  // The protocol is supposed to use .matchRegex to see if the domain to resolve contains a key.
+  // A result indicates that the key indeed is valid
+  if (await protocol(sanitizingContext, key) === undefined) {
+    debug('cache entry for %s:%s not identified as valid key: %s', protocol.name, name, key)
+    return
   }
   return entry
 }
