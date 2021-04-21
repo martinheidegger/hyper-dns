@@ -121,22 +121,25 @@ function createResolveContext (fetch, dnsTxtFallback, opts) {
       if (!match.groups || !match.groups.key) {
         throw new TypeError(`specified keyRegex doesn't provide a "key" group response like /(?<key>[0-9a-f]{64})/: ${keyRegex}`)
       }
-      const key = match.groups.key
-      let { ttl } = opts
-      if (secondLine) {
-        const ttlMatch = TTL_REGEX.exec(secondLine)
-        if (ttlMatch !== null) {
-          ttl = +ttlMatch[1]
-        } else {
-          debug('failed to parse well-known TTL for line: %s, must conform to %s', secondLine, TTL_REGEX)
-        }
-      }
-      return { key, ttl }
+      return { key: match.groups.key, ttl: parseWellKnownTTL(opts, secondLine) }
     }
   })
 }
 createResolveContext.isLocal = isLocal
 createResolveContext.matchRegex = matchRegex
+
+function parseWellKnownTTL (opts, secondLine) {
+  let { ttl } = opts
+  if (secondLine) {
+    const ttlMatch = TTL_REGEX.exec(secondLine)
+    if (ttlMatch !== null) {
+      ttl = +ttlMatch[1]
+    } else {
+      debug('failed to parse well-known TTL for line: %s, must conform to %s', secondLine, TTL_REGEX)
+    }
+  }
+  return ttl
+}
 
 module.exports = Object.freeze(createResolveContext)
 
