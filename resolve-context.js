@@ -5,19 +5,10 @@ const debug = require('debug')('hyper-dns')
 const TTL_REGEX = /^ttl=(\d+)$/i
 
 function isLocal (name) {
-  if (name === 'localhost') {
-    return true
-  }
-  if (name.endsWith('.local')) {
-    return true
-  }
-  if (name.endsWith('.localhost')) {
-    return true
-  }
-  if (!name.includes('.')) {
-    return true
-  }
-  return false
+  return name === 'localhost' ||
+    name.endsWith('.local') ||
+    name.endsWith('.localhost') ||
+    !name.includes('.')
 }
 
 function matchRegex (name, regex) {
