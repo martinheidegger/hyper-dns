@@ -34,9 +34,29 @@ function matchRegex (name, regex) {
   }
 }
 
+function createSimpleFetch (fetch, opts) {
+  const { userAgent } = opts
+  const headers = {
+    Accept: 'text/plain'
+  }
+  if (userAgent) {
+    headers['User-Agent'] = userAgent
+  }
+  return (href, fetchOpts) => fetch(href, {
+    signal: opts.signal,
+    redirect: 'manual',
+    ...fetchOpts,
+    headers: {
+      ...headers,
+      ...(fetchOpts || {}).headers
+    }
+  })
+}
+
 function createResolveContext (fetch, dnsTxtFallback, opts) {
   const dnsTxtLookups = {}
   const { localPort } = opts
+  const simpleFetch = createSimpleFetch(fetch, opts)
 
   // This is not a class on purpose! We don't trust the protocols
   // to read the state of the context.
@@ -50,7 +70,7 @@ function createResolveContext (fetch, dnsTxtFallback, opts) {
       }
       let lookup = dnsTxtLookups[name]
       if (lookup === undefined) {
-        lookup = fetchDnsTxtRecords(dnsTxtFallback, fetch, name, opts)
+        lookup = fetchDnsTxtRecords(dnsTxtFallback, simpleFetch, name, opts)
         dnsTxtLookups[name] = lookup
       }
       const answers = (await lookup).filter(a => {
@@ -96,7 +116,7 @@ function createResolveContext (fetch, dnsTxtFallback, opts) {
     },
     async fetchWellKnown (name, schema, keyRegex, followRedirects) {
       const href = `https://${name}${isLocal(name) && localPort ? `:${localPort}` : ''}/.well-known/${schema}`
-      const res = await fetchWellKnownRecord(fetch, name, href, followRedirects, opts)
+      const res = await fetchWellKnownRecord(simpleFetch, name, href, followRedirects, opts)
       bubbleAbort(opts.signal)
       if (res === undefined) {
         return
@@ -129,16 +149,9 @@ createResolveContext.matchRegex = matchRegex
 
 module.exports = Object.freeze(createResolveContext)
 
-async function fetchWellKnownRecord (fetch, name, href, followRedirects, opts) {
-  const { userAgent, corsWarning } = opts
+async function fetchWellKnownRecord (simpleFetch, name, href, followRedirects, opts) {
+  const { corsWarning } = opts
   let redirectCount = 0
-  const headers = {
-    Accept: 'text/plain'
-  }
-  if (userAgent) {
-    headers['User-Agent'] = userAgent
-  }
-  const fetchOpts = { headers, signal: opts.signal, redirect: 'manual' }
   while (true) {
     bubbleAbort(opts.signal)
     if (redirectCount === 0) {
@@ -146,7 +159,7 @@ async function fetchWellKnownRecord (fetch, name, href, followRedirects, opts) {
     }
     let res
     try {
-      res = await fetch(href, fetchOpts)
+      res = await simpleFetch(href)
     } catch (error) {
       debug('well-known lookup: error while fetching %s: %s', href, error)
       return
@@ -200,19 +213,11 @@ async function fetchDnsTxtRecords (dnsTxtFallback, fetch, name, opts) {
   return await dnsTxtFallback(name)
 }
 
-async function fetchDnsTxtOverHttps (fetch, name, opts) {
-  const { dohLookups, userAgent } = opts
+async function fetchDnsTxtOverHttps (simpleFetch, name, opts) {
+  const { dohLookups } = opts
   if (!name.endsWith('.')) {
     name = `${name}.`
   }
-  const headers = {
-    // Cloudflare requires this exact header; luckily everyone else ignores it
-    Accept: 'application/dns-json'
-  }
-  if (userAgent) {
-    headers['User-Agent'] = userAgent
-  }
-  const fetchOpts = { headers, signal: opts.signal }
   const query = stringify({
     name,
     type: 'TXT'
@@ -221,7 +226,12 @@ async function fetchDnsTxtOverHttps (fetch, name, opts) {
     const path = `${dohLookup}?${query}`
     let res
     try {
-      res = await fetch(path, fetchOpts)
+      res = await simpleFetch(path, {
+        headers: {
+          // Cloudflare requires this exact header; luckily everyone else ignores it
+          Accept: 'application/dns-json'
+        }
+      })
     } catch (error) {
       debug('doh: Error while looking up %s: %s', path, error)
       continue // Try next doh provider
