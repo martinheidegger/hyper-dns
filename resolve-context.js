@@ -226,6 +226,7 @@ async function fetchDnsTxtOverHttps (fetch, name, opts) {
       debug('doh: Error while looking up %s: %s', path, error)
       continue // Try next doh provider
     }
+    bubbleAbort(opts.signal)
     const answers = await txtAnswersFromResponse(opts, name, path, res)
     if (answers !== undefined) {
       return answers
@@ -240,8 +241,8 @@ async function txtAnswersFromResponse (opts, name, path, res) {
     debug('doh: Http status error[code=%s] while looking up %s: %s', res.status, path, text)
     return // Try next doh provider
   }
-  bubbleAbort(opts.signal)
   const body = await res.text()
+  bubbleAbort(opts.signal)
   debug('doh: lookup for name: %s at %s resulted in %s', name, path, res.status, body)
   let record
   try {
@@ -250,7 +251,6 @@ async function txtAnswersFromResponse (opts, name, path, res) {
     debug('doh: Invalid record, must provide valid json:\n%s', error)
     return // Try next doh provider
   }
-  bubbleAbort(opts.signal)
   if (typeof record !== 'object') {
     debug('doh: Invalid record, root needs to be an object')
     return // Try next doh provider
