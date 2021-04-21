@@ -226,37 +226,44 @@ async function fetchDnsTxtOverHttps (fetch, name, opts) {
       debug('doh: Error while looking up %s: %s', path, error)
       continue // Try next doh provider
     }
-    if (res.status !== 200) {
-      /* c8 ignore next */
-      const text = debug.enabled ? await res.text() : null
-      debug('doh: Http status error[code=%s] while looking up %s: %s', res.status, path, text)
-      continue // Try next doh provider
+    const answers = await txtAnswersFromResponse(opts, name, path, res)
+    if (answers !== undefined) {
+      return answers
     }
-    bubbleAbort(opts.signal)
-    const body = await res.text()
-    debug('doh: lookup for name: %s at %s resulted in %s', name, path, res.status, body)
-    let record
-    try {
-      record = JSON.parse(body)
-    } catch (error) {
-      debug('doh: Invalid record, must provide valid json:\n%s', error)
-      continue // Try next doh provider
-    }
-    bubbleAbort(opts.signal)
-    if (typeof record !== 'object') {
-      debug('doh: Invalid record, root needs to be an object')
-      continue // Try next doh provider
-    }
-    // find valid answers
-    let { Answer: answers } = record
-    if (answers === null || answers === undefined) {
-      debug('doh: No Answers given')
-      answers = []
-    }
-    if (!Array.isArray(answers)) {
-      debug('doh: Invalid record, unexpected "Answers" given')
-      continue // Try next doh provider
-    }
-    return answers
   }
+}
+
+async function txtAnswersFromResponse (opts, name, path, res) {
+  if (res.status !== 200) {
+    /* c8 ignore next */
+    const text = debug.enabled ? await res.text() : null
+    debug('doh: Http status error[code=%s] while looking up %s: %s', res.status, path, text)
+    return // Try next doh provider
+  }
+  bubbleAbort(opts.signal)
+  const body = await res.text()
+  debug('doh: lookup for name: %s at %s resulted in %s', name, path, res.status, body)
+  let record
+  try {
+    record = JSON.parse(body)
+  } catch (error) {
+    debug('doh: Invalid record, must provide valid json:\n%s', error)
+    return // Try next doh provider
+  }
+  bubbleAbort(opts.signal)
+  if (typeof record !== 'object') {
+    debug('doh: Invalid record, root needs to be an object')
+    return // Try next doh provider
+  }
+  // find valid answers
+  let { Answer: answers } = record
+  if (answers === null || answers === undefined) {
+    debug('doh: No Answers given')
+    answers = []
+  }
+  if (!Array.isArray(answers)) {
+    debug('doh: Invalid record, unexpected "Answers" given')
+    return // Try next doh provider
+  }
+  return answers
 }
