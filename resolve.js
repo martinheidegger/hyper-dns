@@ -247,22 +247,22 @@ async function wrapContext (handler, createLookupContext, opts) {
 }
 
 function * getProtocols (opts) {
-  const { protocolPreference: preferences } = opts
-  const preferred = []
-  if (preferences !== null && preferences !== undefined) {
-    for (const preference of preferences) {
-      const protocol = getProtocol(opts, preference)
-      preferred.push(protocol)
-    }
+  const rest = new Set(opts.protocols)
+  for (const protocol of getPreferredProtocols(opts)) {
+    yield protocol
+    rest.delete(protocol)
   }
-  for (const protocol of preferred) {
+  for (const protocol of rest) {
     yield protocol
   }
-  for (const protocol of opts.protocols) {
-    if (!preferred.includes(protocol)) {
-      yield protocol
-    }
+}
+
+function getPreferredProtocols (opts) {
+  const { protocolPreference: preferences } = opts
+  if (preferences === null || preferences === undefined) {
+    return []
   }
+  return preferences.map(preference => getProtocol(opts, preference))
 }
 
 const VALID_PROTOCOL = /^[^:]+$/
