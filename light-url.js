@@ -80,10 +80,7 @@ function sanitizePathname (url) {
         return true
       })
       .reverse().join('/')
-    if (pathname.startsWith('/')) {
-      return pathname
-    }
-    return `/${pathname}`
+    return pathname.startsWith('/') ? pathname : `/${pathname}`
   }
   if (pathnameRequired.includes(protocol)) {
     return '/'

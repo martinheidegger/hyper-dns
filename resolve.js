@@ -308,7 +308,7 @@ async function getCacheEntry (opts, protocol, name) {
   return await validateCacheEntry(protocol, name, entry)
 }
 
-async function validateCacheEntry(protocol, name, entry) {
+async function validateCacheEntry (protocol, name, entry) {
   if (entry === null) {
     debug('cache entry for %s:%s was empty', protocol.name, name)
     return
