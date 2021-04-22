@@ -239,21 +239,21 @@ async function fetchDnsTxtOverHttps (simpleFetch, name, opts) {
     type: 'TXT'
   })
   for (const dohLookup of randomized(dohLookups)) {
-    const path = `${dohLookup}?${query}`
+    const href = `${dohLookup}?${query}`
     let res
     try {
-      res = await simpleFetch(path, {
+      res = await simpleFetch(href, {
         headers: {
           // Cloudflare requires this exact header; luckily everyone else ignores it
           Accept: 'application/dns-json'
         }
       })
     } catch (error) {
-      debug('doh: Error while looking up %s: %s', path, error)
+      debug('doh: Error while looking up %s: %s', href, error)
       continue // Try next doh provider
     }
     bubbleAbort(opts.signal)
-    const record = await jsonFromResponse(opts, name, path, res)
+    const record = await jsonFromResponse(opts, name, href, res)
     if (record === undefined) {
       continue // Try next doh provider
     }
@@ -282,16 +282,16 @@ async function answersFromRecord (record) {
   return answers
 }
 
-async function jsonFromResponse (opts, name, path, res) {
+async function jsonFromResponse (opts, name, href, res) {
   if (res.status !== 200) {
     /* c8 ignore next */
     const text = debug.enabled ? await res.text() : null
-    debug('doh: Http status error[code=%s] while looking up %s: %s', res.status, path, text)
+    debug('doh: Http status error[code=%s] while looking up %s: %s', res.status, href, text)
     return // Try next doh provider
   }
   const body = await res.text()
   bubbleAbort(opts.signal)
-  debug('doh: lookup for name: %s at %s resulted in %s', name, path, res.status, body)
+  debug('doh: lookup for name: %s at %s resulted in %s', name, href, res.status, body)
   try {
     return JSON.parse(body)
   } catch (error) {

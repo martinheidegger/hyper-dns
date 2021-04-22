@@ -45,25 +45,29 @@ module.exports = Object.freeze({
   cache,
   createCacheSqlite,
   ...addProperties(createResolveContext, base.createResolveContext),
-  ...addDefaults(async function resolveProtocol (protocol, name, opts) {
+  async resolveProtocol (protocol, name, opts) {
     return base.resolveProtocol(createResolveContext, protocol, name, {
       cache,
       ...opts
     })
-  }, base.resolveProtocol),
-  ...addDefaults(async function resolve (name, opts) {
+  },
+  async resolve (name, opts) {
     return base.resolve(createResolveContext, name, {
       cache,
       ...opts
     })
-  }, base.resolve),
-  ...addDefaults(async function resolveURL (url, opts) {
+  },
+  async resolveURL (url, opts) {
     return base.resolveURL(createResolveContext, url, {
       cache,
       ...opts
     })
-  }, base.resolveURL)
+  }
 })
+
+addDefaults(module.exports.resolveProtocol, base.resolveProtocol)
+addDefaults(module.exports.resolve, base.resolve)
+addDefaults(module.exports.resolveURL, base.resolveURL)
 
 function addProperties (fn, baseFn) {
   for (const [key, value] of Object.entries(baseFn)) {
@@ -79,7 +83,5 @@ function addDefaults (fn, baseFn) {
     ...baseFn.DEFAULTS,
     cache
   }
-  return {
-    [fn.name]: Object.freeze(fn)
-  }
+  Object.freeze(fn)
 }
