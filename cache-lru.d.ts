@@ -2,7 +2,7 @@ import { Cache } from './resolve'
 
 declare function createCacheLRU (options?: createCacheLRU.Options): createCacheLRU.CacheLRU
 
-namespace createCacheLRU {
+declare namespace createCacheLRU {
   interface CacheLRU extends Cache {
     clear (): Promise<void>
     clearName (name: string): Promise<void>

@@ -6,7 +6,7 @@ declare function createResolveContext (
   opts: ResolveOptions
 ): createResolveContext.ResolveContext
 
-namespace createResolveContext {
+declare namespace createResolveContext {
   interface LookupEntry {
     key: string
     ttl?: number
@@ -14,11 +14,11 @@ namespace createResolveContext {
   interface ResolveContext {
     isLocal: typeof isLocal
     matchRegex: typeof matchRegex
-    getDNSTxtRecord: (name: string, textRegex: Regexp) => Promise<LookupEntry>
+    getDNSTxtRecord: (name: string, textRegex: RegExp) => Promise<LookupEntry>
     fetchWellKnown: (name: string, schema: string, keyRegex: RegExp, followRedirects: number) => Promise<LookupEntry>
   }
-  declare function isLocal (name: string): boolean
-  declare function matchRegex (name: string, regex: RegExp): LookupEntry | undefined
+  function isLocal (name: string): boolean
+  function matchRegex (name: string, regex: RegExp): LookupEntry | undefined
   interface FetchOptions {
     signal: AbortSignal
     redirect: 'manual',
@@ -33,6 +33,7 @@ namespace createResolveContext {
     href: string
     text (): Promise<string>
   }
+  type DNSTxtFallback = (name: string) => Array<{ data: string, TTL?: number }>
   type Fetch = (href: string, options: FetchOptions) => Promise<Response>
 }
 

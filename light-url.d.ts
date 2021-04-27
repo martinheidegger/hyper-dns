@@ -1,6 +1,6 @@
-namespace lightURL {
+declare namespace lightURL {
 
-  declare const urlRegex: RegExp
+  const urlRegex: RegExp
 
   interface LightURLParts {
     protocol?: string
@@ -15,7 +15,7 @@ namespace lightURL {
     hash?: string
   }
 
-  declare class LightURL {
+  class LightURL {
     constructor (input: string | LightURLParts, base?: string | LightURL | null)
     protocol: string | null
     hostname: string | null
