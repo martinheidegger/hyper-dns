@@ -35,7 +35,7 @@
     "https-proxy-agent": "^5.0.0",
     "node-fetch": "^2.6.1",
     "proxy-from-env": "^1.1.0",
-    "quick-lru": "^5.1.1"
+    "quick-lru": "^4.0.1"
   },
   "devDependencies": {
     "browserify": "^17.0.0",

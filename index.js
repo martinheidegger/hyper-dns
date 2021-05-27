@@ -6,7 +6,7 @@ const createCacheSqlite = require('./cache-sqlite.js')
 const nodeFetch = require('node-fetch')
 const createHttpsAgent = require('https-proxy-agent')
 const { getProxyForUrl } = require('proxy-from-env')
-const loadQuickLRU = import('quick-lru')
+const QuickLRU = require('quick-lru')
 
 let proxyCache
 async function fetch (url, options) {
@@ -15,7 +15,6 @@ async function fetch (url, options) {
   if (proxy) {
     debug('Using https proxy %s for %s', proxy, url)
     if (!proxyCache) {
-      const { default: QuickLRU } = await loadQuickLRU
       proxyCache = new QuickLRU({ maxSize: 100 })
     }
     agent = proxyCache.get(proxy)
