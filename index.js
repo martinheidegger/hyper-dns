@@ -1,7 +1,17 @@
 const resolveTxt = require('util').promisify(require('dns').resolveTxt)
 const debug = require('debug')('hyper-dns')
 const base = require('./resolve.js')
-const createCacheSqlite = require('./cache-sqlite.js')
+let createCacheSqlite
+let cache
+try {
+  createCacheSqlite = require('./cache-sqlite.js')
+  cache = createCacheSqlite()
+} catch (err) {
+  createCacheSqlite = function () {
+    throw new Error('Optional dependency sqlite missing.')
+  }
+  cache = base.createCacheLRU()
+}
 
 const nodeFetch = require('node-fetch')
 const createHttpsAgent = require('https-proxy-agent')
@@ -37,7 +47,6 @@ async function resolveTxtFallback (domain) {
 function createResolveContext (opts) {
   return base.createResolveContext(fetch, resolveTxtFallback, opts)
 }
-const cache = createCacheSqlite()
 
 module.exports = Object.freeze({
   ...base,

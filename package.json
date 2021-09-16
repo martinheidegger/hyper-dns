@@ -29,13 +29,15 @@
   "homepage": "https://github.com/martinheidegger/hyper-dns#readme",
   "dependencies": {
     "@consento/promise": "^1.0.7",
-    "better-sqlite3": "^7.1.4",
     "debug": "^4.3.1",
     "env-paths": "^2.2.1",
     "https-proxy-agent": "^5.0.0",
     "node-fetch": "^2.6.1",
     "proxy-from-env": "^1.1.0",
     "quick-lru": "^4.0.1"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^7.1.4"
   },
   "devDependencies": {
     "browserify": "^17.0.0",
